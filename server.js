@@ -19,9 +19,13 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// CORS configuration
+// CORS configuration - Updated to allow custom domain
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: [
+    process.env.FRONTEND_URL || 'http://localhost:5173',
+    'https://insightsnap.co',
+    'https://www.insightsnap.co'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
@@ -51,8 +55,8 @@ app.use('/api/', limiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Health check endpoint
-app.get('/health', (req, res) => {
+// Health check endpoint - Updated route
+app.get('/search/health', (req, res) => {
   res.json({ 
     status: 'OK', 
     timestamp: new Date().toISOString(),
@@ -61,21 +65,21 @@ app.get('/health', (req, res) => {
   });
 });
 
-// API routes
-app.use('/api/search', searchRoutes);
-app.use('/api/reddit', redditRoutes);
-app.use('/api/x', xRoutes);
+// API routes - Updated to remove /api/ prefix
+app.use('/search', searchRoutes);
+app.use('/reddit', redditRoutes);
+app.use('/x', xRoutes);
 
-// 404 handler
+// 404 handler - Updated available routes
 app.use('*', (req, res) => {
   res.status(404).json({
     error: 'Not Found',
     message: `Route ${req.originalUrl} not found`,
     availableRoutes: [
-      'GET /health',
-      'POST /api/search',
-      'POST /api/reddit/search',
-      'POST /api/x/search'
+      'GET /search/health',
+      'POST /search',
+      'GET /reddit/health',
+      'GET /x/health'
     ]
   });
 });
