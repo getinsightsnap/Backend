@@ -6,9 +6,9 @@ const corsOptions = {
     if (!origin) return callback(null, true);
     
     const allowedOrigins = [
-      process.env.FRONTEND_URL || 'http://localhost:5173',
       'https://insightsnap.co',
-      'https://www.insightsnap.co'
+      'https://www.insightsnap.co',
+      process.env.FRONTEND_URL || 'http://localhost:5173'
     ];
     
     if (allowedOrigins.includes(origin)) {
