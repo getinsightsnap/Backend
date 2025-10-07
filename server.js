@@ -1,5 +1,4 @@
 const express = require('express');
-const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 const morgan = require('morgan');
@@ -7,6 +6,7 @@ const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const logger = require('./utils/logger');
+const corsMiddleware = require('./middleware/cors');
 const searchRoutes = require('./routes/search');
 const redditRoutes = require('./routes/reddit');
 const xRoutes = require('./routes/x');
@@ -19,17 +19,8 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// CORS configuration - Updated to allow custom domain
-app.use(cors({
-  origin: [
-    process.env.FRONTEND_URL || 'http://localhost:5173',
-    'https://insightsnap.co',
-    'https://www.insightsnap.co'
-  ],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-}));
+// CORS configuration
+app.use(corsMiddleware);
 
 // Compression middleware
 app.use(compression());
@@ -55,8 +46,8 @@ app.use('/api/', limiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Health check endpoint - Updated route
-app.get('/search/health', (req, res) => {
+// Health check endpoint
+app.get('/health', (req, res) => {
   res.json({ 
     status: 'OK', 
     timestamp: new Date().toISOString(),
@@ -65,21 +56,21 @@ app.get('/search/health', (req, res) => {
   });
 });
 
-// API routes - Updated to remove /api/ prefix
-app.use('/search', searchRoutes);
-app.use('/reddit', redditRoutes);
-app.use('/x', xRoutes);
+// API routes
+app.use('/api/search', searchRoutes);
+app.use('/api/reddit', redditRoutes);
+app.use('/api/x', xRoutes);
 
-// 404 handler - Updated available routes
+// 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({
     error: 'Not Found',
     message: `Route ${req.originalUrl} not found`,
     availableRoutes: [
-      'GET /search/health',
-      'POST /search',
-      'GET /reddit/health',
-      'GET /x/health'
+      'GET /health',
+      'POST /api/search',
+      'POST /api/reddit/search',
+      'POST /api/x/search'
     ]
   });
 });
