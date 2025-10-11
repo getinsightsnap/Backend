@@ -30,7 +30,7 @@ router.post('/', validateSearchRequest, async (req, res) => {
     
     if (platforms.includes('x')) {
       promises.push(
-        XService.searchPosts(query, language, 50)
+        XService.searchPosts(query, language, timeFilter, 50)
           .then(posts => ({ platform: 'x', posts, success: true }))
           .catch(error => ({ platform: 'x', error: error.message, success: false }))
       );
