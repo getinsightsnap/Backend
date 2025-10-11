@@ -6,3 +6,6 @@ cmds = ["npm ci"]
 
 [start]
 cmd = "npm start"
+
+[build]
+cmds = ["npm ci --only=production"]
