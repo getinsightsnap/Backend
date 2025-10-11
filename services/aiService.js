@@ -10,7 +10,8 @@ class AIService {
       return {
         painPoints: [],
         trendingIdeas: [],
-        contentIdeas: []
+        contentIdeas: [],
+        sentimentAnalysis: { overallSentiment: 'neutral', confidence: 0, userIntentMatch: 0 }
       };
     }
 
@@ -22,27 +23,46 @@ class AIService {
         return this.simpleCategorization(posts);
       }
 
-      logger.info(`🤖 Categorizing ${posts.length} posts using AI...`);
+      // Increase post limit to 100 for better analysis
+      const maxPosts = Math.min(posts.length, 100);
+      logger.info(`🤖 Categorizing ${maxPosts} posts using AI with sentiment analysis...`);
       
-      // Prepare posts for AI analysis with timestamps
-      const postsText = posts.slice(0, 20).map((post, index) => 
-        `${index + 1}. [${post.platform}] Posted ${post.timestamp}: ${post.content.substring(0, 200)}...`
+      // Prepare posts for AI analysis with timestamps and more context
+      const postsText = posts.slice(0, maxPosts).map((post, index) => 
+        `${index + 1}. [${post.platform}] Posted ${post.timestamp}: ${post.content.substring(0, 180)}...`
       ).join('\n\n');
 
-      const prompt = `Analyze these social media posts about "${query}" and categorize them into three groups. Consider both the content AND the post time (recency matters for trending ideas):
+      const prompt = `Analyze these social media posts about "${query}" with sentiment analysis and user intent matching.
 
-1. PAIN POINTS: Posts that express problems, frustrations, complaints, or challenges
-2. TRENDING IDEAS: Posts about popular topics, viral content, or emerging trends
-3. CONTENT IDEAS: Posts that suggest solutions, tips, tutorials, or valuable insights
+USER SEARCH INTENT: "${query}" - The user is looking for insights about this topic.
 
-Posts to analyze:
+For each post, analyze:
+1. SENTIMENT: positive, negative, or neutral
+2. INTENT MATCH: How relevant is this to "${query}"?
+3. CONTENT TYPE: problem, solution, trend, or general discussion
+
+Categorize into three groups:
+
+1. PAIN POINTS: Posts with negative sentiment expressing problems/frustrations about "${query}"
+2. TRENDING IDEAS: Posts with positive sentiment showing viral/popular discussions about "${query}"  
+3. CONTENT IDEAS: Posts offering solutions, tips, tutorials, or valuable insights about "${query}"
+
+Posts to analyze (${maxPosts} total):
 ${postsText}
 
-Please respond with a JSON object in this exact format:
+Respond with JSON:
 {
-  "painPoints": [list of post indices that are pain points],
-  "trendingIdeas": [list of post indices that are trending ideas],
-  "contentIdeas": [list of post indices that are content ideas]
+  "painPoints": [list of post indices],
+  "trendingIdeas": [list of post indices], 
+  "contentIdeas": [list of post indices],
+  "sentimentAnalysis": {
+    "overallSentiment": "positive|negative|neutral",
+    "confidence": 0.0-1.0,
+    "userIntentMatch": 0.0-1.0,
+    "painPointSentiment": "negative",
+    "trendingSentiment": "positive", 
+    "contentSentiment": "positive"
+  }
 }
 
 Only include the JSON response, no other text.`;
@@ -55,14 +75,14 @@ Only include the JSON response, no other text.`;
             content: prompt
           }
         ],
-        max_tokens: 1000,
-        temperature: 0.3
+        max_tokens: 1500, // Increased for sentiment analysis
+        temperature: 0.2  // Lower temperature for more consistent sentiment analysis
       }, {
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json'
         },
-        timeout: this.timeout
+        timeout: 40000 // Increased timeout for larger analysis
       });
 
       const aiResponse = response.data.choices[0]?.message?.content;
@@ -78,10 +98,16 @@ Only include the JSON response, no other text.`;
       const result = {
         painPoints: this.getCategorizedPosts(posts, categorization.painPoints || []),
         trendingIdeas: this.getCategorizedPosts(posts, categorization.trendingIdeas || []),
-        contentIdeas: this.getCategorizedPosts(posts, categorization.contentIdeas || [])
+        contentIdeas: this.getCategorizedPosts(posts, categorization.contentIdeas || []),
+        sentimentAnalysis: categorization.sentimentAnalysis || {
+          overallSentiment: 'neutral',
+          confidence: 0,
+          userIntentMatch: 0
+        }
       };
 
       logger.info(`✅ AI categorization complete: ${result.painPoints.length} pain points, ${result.trendingIdeas.length} trending ideas, ${result.contentIdeas.length} content ideas`);
+      logger.info(`📊 Sentiment: ${result.sentimentAnalysis.overallSentiment} (confidence: ${result.sentimentAnalysis.confidence}, intent match: ${result.sentimentAnalysis.userIntentMatch})`);
       
       return result;
 
@@ -100,22 +126,32 @@ Only include the JSON response, no other text.`;
   }
 
   static simpleCategorization(posts) {
+    // Enhanced keyword lists with sentiment indicators
     const painPointKeywords = [
+      // Negative sentiment words
       'problem', 'issue', 'struggle', 'difficult', 'hard', 'frustrated', 'annoying',
       'hate', 'terrible', 'awful', 'worst', 'broken', 'doesn\'t work', 'failed',
-      'disappointed', 'upset', 'angry', 'complaint', 'bug', 'error'
+      'disappointed', 'upset', 'angry', 'complaint', 'bug', 'error', 'sucks',
+      'horrible', 'pathetic', 'useless', 'waste', 'regret', 'disappointed',
+      'annoying', 'ridiculous', 'stupid', 'dumb', 'hate', 'loathe', 'despise'
     ];
 
     const trendingKeywords = [
+      // Positive sentiment + trending indicators
       'viral', 'trending', 'popular', 'hot', 'buzz', 'hype', 'craze', 'fad',
       'everyone is talking about', 'all over', 'blowing up', 'going viral',
-      'trend', 'happening now', 'latest', 'new'
+      'trend', 'happening now', 'latest', 'new', 'amazing', 'love', 'awesome',
+      'incredible', 'fantastic', 'brilliant', 'game changer', 'mind blown',
+      'obsessed', 'addicted', 'can\'t stop', 'so good', 'perfect', 'excellent'
     ];
 
     const contentKeywords = [
+      // Solution-oriented positive words
       'tip', 'tutorial', 'guide', 'how to', 'solution', 'advice', 'recommend',
       'best', 'top', 'list', 'check out', 'try this', 'learn', 'trick',
-      'hack', 'secret', 'insider', 'expert', 'pro', 'professional'
+      'hack', 'secret', 'insider', 'expert', 'pro', 'professional', 'works',
+      'helpful', 'useful', 'effective', 'success', 'improve', 'better',
+      'step by step', 'easy way', 'quick fix', 'simple', 'clear', 'understand'
     ];
 
     const painPoints = [];
@@ -151,9 +187,14 @@ Only include the JSON response, no other text.`;
     });
 
     return {
-      painPoints: painPoints.slice(0, 20),
-      trendingIdeas: trendingIdeas.slice(0, 20),
-      contentIdeas: contentIdeas.slice(0, 20)
+      painPoints: painPoints.slice(0, 50), // Increased from 20 to 50
+      trendingIdeas: trendingIdeas.slice(0, 50),
+      contentIdeas: contentIdeas.slice(0, 50),
+      sentimentAnalysis: {
+        overallSentiment: 'neutral',
+        confidence: 0.3, // Lower confidence for fallback method
+        userIntentMatch: 0.2
+      }
     };
   }
 
