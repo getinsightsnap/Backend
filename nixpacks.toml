@@ -5,7 +5,7 @@ nixPkgs = ["nodejs_18"]
 cmds = ["npm ci"]
 
 [start]
-cmd = "npm start"
+cmd = "npm start"]
 
 [build]
 cmds = ["npm ci --only=production"]
