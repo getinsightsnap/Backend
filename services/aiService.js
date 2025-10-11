@@ -24,12 +24,12 @@ class AIService {
 
       logger.info(`🤖 Categorizing ${posts.length} posts using AI...`);
       
-      // Prepare posts for AI analysis
+      // Prepare posts for AI analysis with timestamps
       const postsText = posts.slice(0, 20).map((post, index) => 
-        `${index + 1}. [${post.platform}] ${post.content.substring(0, 200)}...`
+        `${index + 1}. [${post.platform}] Posted ${post.timestamp}: ${post.content.substring(0, 200)}...`
       ).join('\n\n');
 
-      const prompt = `Analyze these social media posts about "${query}" and categorize them into three groups:
+      const prompt = `Analyze these social media posts about "${query}" and categorize them into three groups. Consider both the content AND the post time (recency matters for trending ideas):
 
 1. PAIN POINTS: Posts that express problems, frustrations, complaints, or challenges
 2. TRENDING IDEAS: Posts about popular topics, viral content, or emerging trends
