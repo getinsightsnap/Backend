@@ -10,7 +10,6 @@ const corsMiddleware = require('./middleware/cors');
 const searchRoutes = require('./routes/search');
 const redditRoutes = require('./routes/reddit');
 const xRoutes = require('./routes/x');
-const notificationRoutes = require('./routes/notifications');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -61,7 +60,6 @@ app.get('/health', (req, res) => {
 app.use('/api/search', searchRoutes);
 app.use('/api/reddit', redditRoutes);
 app.use('/api/x', xRoutes);
-app.use('/api/notifications', notificationRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
@@ -72,9 +70,7 @@ app.use('*', (req, res) => {
       'GET /health',
       'POST /api/search',
       'POST /api/reddit/search',
-      'POST /api/x/search',
-      'POST /api/notifications/signup',
-      'GET /api/notifications/health'
+      'POST /api/x/search'
     ]
   });
 });
