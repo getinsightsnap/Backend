@@ -11,7 +11,7 @@ class AIService {
         painPoints: [],
         trendingIdeas: [],
         contentIdeas: [],
-        sentimentAnalysis: { overallSentiment: 'neutral', confidence: 0, userIntentMatch: 0 }
+        relevanceAnalysis: { totalRelevantPosts: 0, relevanceScore: 0, excludedPromotedContent: 0, excludedIrrelevantPosts: 0 }
       };
     }
 
@@ -32,36 +32,37 @@ class AIService {
         `${index + 1}. [${post.platform}] Posted ${post.timestamp}: ${post.content.substring(0, 180)}...`
       ).join('\n\n');
 
-      const prompt = `Analyze these social media posts about "${query}" with sentiment analysis and user intent matching.
+      const prompt = `Analyze these social media posts and ONLY include posts that are directly relevant to "${query}".
 
-USER SEARCH INTENT: "${query}" - The user is looking for insights about this topic.
+CRITICAL FILTERING RULES:
+1. ONLY include posts that are directly about "${query}" or closely related topics
+2. EXCLUDE promoted content, sponsored posts, or advertisements
+3. EXCLUDE posts that only mention "${query}" in passing without being about the topic
+4. EXCLUDE irrelevant posts that happen to contain the keyword "${query}"
 
-For each post, analyze:
-1. SENTIMENT: positive, negative, or neutral
-2. INTENT MATCH: How relevant is this to "${query}"?
-3. CONTENT TYPE: problem, solution, trend, or general discussion
+USER SEARCH INTENT: "${query}" - The user wants insights specifically about this topic.
 
-Categorize into three groups:
+For each RELEVANT post, categorize into three groups:
 
-1. PAIN POINTS: Posts with negative sentiment expressing problems/frustrations about "${query}"
-2. TRENDING IDEAS: Posts with positive sentiment showing viral/popular discussions about "${query}"  
+1. PAIN POINTS: Posts expressing problems, frustrations, or challenges related to "${query}"
+2. TRENDING IDEAS: Posts about popular/viral discussions, news, or emerging trends about "${query}"
 3. CONTENT IDEAS: Posts offering solutions, tips, tutorials, or valuable insights about "${query}"
 
 Posts to analyze (${maxPosts} total):
 ${postsText}
 
+IMPORTANT: Only include post indices that are DIRECTLY relevant to "${query}". If a post is not about "${query}", do not include it in any category.
+
 Respond with JSON:
 {
-  "painPoints": [list of post indices],
-  "trendingIdeas": [list of post indices], 
-  "contentIdeas": [list of post indices],
-  "sentimentAnalysis": {
-    "overallSentiment": "positive|negative|neutral",
-    "confidence": 0.0-1.0,
-    "userIntentMatch": 0.0-1.0,
-    "painPointSentiment": "negative",
-    "trendingSentiment": "positive", 
-    "contentSentiment": "positive"
+  "painPoints": [list of RELEVANT post indices about problems with "${query}"],
+  "trendingIdeas": [list of RELEVANT post indices about trends in "${query}"], 
+  "contentIdeas": [list of RELEVANT post indices about solutions for "${query}"],
+  "relevanceAnalysis": {
+    "totalRelevantPosts": number,
+    "relevanceScore": 0.0-1.0,
+    "excludedPromotedContent": number,
+    "excludedIrrelevantPosts": number
   }
 }
 
@@ -99,22 +100,23 @@ Only include the JSON response, no other text.`;
         painPoints: this.getCategorizedPosts(posts, categorization.painPoints || []),
         trendingIdeas: this.getCategorizedPosts(posts, categorization.trendingIdeas || []),
         contentIdeas: this.getCategorizedPosts(posts, categorization.contentIdeas || []),
-        sentimentAnalysis: categorization.sentimentAnalysis || {
-          overallSentiment: 'neutral',
-          confidence: 0,
-          userIntentMatch: 0
+        relevanceAnalysis: categorization.relevanceAnalysis || {
+          totalRelevantPosts: 0,
+          relevanceScore: 0,
+          excludedPromotedContent: 0,
+          excludedIrrelevantPosts: 0
         }
       };
 
       logger.info(`✅ AI categorization complete: ${result.painPoints.length} pain points, ${result.trendingIdeas.length} trending ideas, ${result.contentIdeas.length} content ideas`);
-      logger.info(`📊 Sentiment: ${result.sentimentAnalysis.overallSentiment} (confidence: ${result.sentimentAnalysis.confidence}, intent match: ${result.sentimentAnalysis.userIntentMatch})`);
+      logger.info(`📊 Relevance: ${result.relevanceAnalysis.totalRelevantPosts} relevant posts (score: ${result.relevanceAnalysis.relevanceScore}), excluded: ${result.relevanceAnalysis.excludedPromotedContent} promoted + ${result.relevanceAnalysis.excludedIrrelevantPosts} irrelevant`);
       
       return result;
 
     } catch (error) {
       logger.error('AI categorization error:', error);
       logger.info('Falling back to simple categorization');
-      return this.simpleCategorization(posts);
+      return this.simpleCategorization(posts, query);
     }
   }
 
@@ -125,7 +127,14 @@ Only include the JSON response, no other text.`;
       .filter(Boolean);
   }
 
-  static simpleCategorization(posts) {
+  static simpleCategorization(posts, query = '') {
+    // Keywords that indicate promoted/sponsored content (to exclude)
+    const promotedKeywords = [
+      'sponsored', 'promoted', 'ad', 'advertisement', 'paid partnership',
+      'affiliate', 'commission', 'buy now', 'click here', 'link in bio',
+      'swipe up', 'use code', 'discount code', 'promo code'
+    ];
+
     // Enhanced keyword lists with sentiment indicators
     const painPointKeywords = [
       // Negative sentiment words
@@ -157,9 +166,28 @@ Only include the JSON response, no other text.`;
     const painPoints = [];
     const trendingIdeas = [];
     const contentIdeas = [];
+    let excludedPromoted = 0;
+    let excludedIrrelevant = 0;
 
     posts.forEach(post => {
       const content = post.content.toLowerCase();
+      const queryLower = query.toLowerCase();
+      
+      // Check if post is promoted/sponsored content
+      const isPromoted = promotedKeywords.some(keyword => content.includes(keyword));
+      if (isPromoted) {
+        excludedPromoted++;
+        return; // Skip promoted content
+      }
+
+      // Check relevance to query (basic keyword matching)
+      const queryWords = queryLower.split(' ').filter(word => word.length > 2);
+      const hasQueryRelevance = queryWords.some(word => content.includes(word));
+      
+      if (!hasQueryRelevance) {
+        excludedIrrelevant++;
+        return; // Skip irrelevant posts
+      }
       
       const painScore = painPointKeywords.reduce((score, keyword) => 
         score + (content.includes(keyword) ? 1 : 0), 0
@@ -186,14 +214,17 @@ Only include the JSON response, no other text.`;
       }
     });
 
+    const totalRelevant = painPoints.length + trendingIdeas.length + contentIdeas.length;
+
     return {
-      painPoints: painPoints.slice(0, 50), // Increased from 20 to 50
+      painPoints: painPoints.slice(0, 50),
       trendingIdeas: trendingIdeas.slice(0, 50),
       contentIdeas: contentIdeas.slice(0, 50),
-      sentimentAnalysis: {
-        overallSentiment: 'neutral',
-        confidence: 0.3, // Lower confidence for fallback method
-        userIntentMatch: 0.2
+      relevanceAnalysis: {
+        totalRelevantPosts: totalRelevant,
+        relevanceScore: totalRelevant > 0 ? Math.min(totalRelevant / posts.length, 1) : 0,
+        excludedPromotedContent: excludedPromoted,
+        excludedIrrelevantPosts: excludedIrrelevant
       }
     };
   }
