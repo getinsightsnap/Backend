@@ -5,9 +5,9 @@ class XService {
   static baseUrl = 'https://api.x.com/2';
   static timeout = 15000; // 15 seconds
 
-  static async searchPosts(query, language = 'en', maxResults = 50) {
+  static async searchPosts(query, language = 'en', timeFilter = 'week', maxResults = 50) {
     const startTime = Date.now();
-    logger.info(`🐦 Starting X search for: "${query}"`);
+    logger.info(`🐦 Starting X search for: "${query}" (timeFilter: ${timeFilter})`);
 
     try {
       const bearerToken = process.env.X_BEARER_TOKEN;
@@ -22,6 +22,9 @@ class XService {
         searchQuery = `${query} lang:${language}`;
       }
 
+      // Calculate start time based on time filter
+      const startTimeISO = this.calculateStartTime(timeFilter);
+
       // Build API request parameters
       const params = new URLSearchParams({
         'query': searchQuery,
@@ -31,6 +34,11 @@ class XService {
         'expansions': 'author_id',
         'sort_order': 'relevancy'
       });
+
+      // Add start_time if calculated
+      if (startTimeISO) {
+        params.append('start_time', startTimeISO);
+      }
 
       const url = `${this.baseUrl}/tweets/search/recent?${params}`;
 
@@ -113,6 +121,46 @@ class XService {
       isRetweet: !!tweet.referenced_tweets?.find(ref => ref.type === 'retweeted'),
       isReply: !!tweet.referenced_tweets?.find(ref => ref.type === 'replied_to')
     };
+  }
+
+  static calculateStartTime(timeFilter) {
+    const now = new Date();
+    let daysAgo;
+
+    switch (timeFilter) {
+      case 'hour':
+        daysAgo = 1 / 24; // 1 hour in days
+        break;
+      case 'day':
+        daysAgo = 1;
+        break;
+      case 'week':
+        daysAgo = 7;
+        break;
+      case 'month':
+        daysAgo = 30;
+        break;
+      case '3months':
+        daysAgo = 90;
+        break;
+      case '6months':
+        daysAgo = 180;
+        break;
+      case 'year':
+        daysAgo = 365;
+        break;
+      case 'all':
+        // Twitter API only supports recent search (last 7 days for standard access)
+        daysAgo = 7;
+        break;
+      default:
+        daysAgo = 7; // default to week
+    }
+
+    const startTime = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+    
+    // Twitter API requires ISO 8601 format
+    return startTime.toISOString();
   }
 
   static formatTimestamp(dateString) {
