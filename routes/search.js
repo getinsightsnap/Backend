@@ -88,7 +88,7 @@ router.post('/', validateSearchRequest, async (req, res) => {
     
     logger.info(`🎉 Search completed: ${totalPosts} total posts in ${duration}ms`);
 
-    // Response
+    // Response with sentiment analysis
     res.json({
       success: true,
       data: categorizedResults,
@@ -98,6 +98,7 @@ router.post('/', validateSearchRequest, async (req, res) => {
         totalPosts,
         duration,
         errors: errors.length > 0 ? errors : undefined,
+        sentimentAnalysis: categorizedResults.sentimentAnalysis,
         timestamp: new Date().toISOString()
       }
     });
