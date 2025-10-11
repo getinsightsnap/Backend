@@ -16,8 +16,8 @@ const searchSchema = Joi.object({
   language: Joi.string().length(2).default('en').messages({
     'string.length': 'Language must be a 2-character code (e.g., en, es, fr)'
   }),
-  timeFilter: Joi.string().valid('hour', 'day', 'week', 'month', 'year', 'all').default('week').messages({
-    'any.only': 'Time filter must be one of: hour, day, week, month, year, all'
+  timeFilter: Joi.string().valid('hour', 'day', 'week', 'month', '3months', '6months', 'year', 'all').default('week').messages({
+    'any.only': 'Time filter must be one of: hour, day, week, month, 3months, 6months, year, all'
   })
 });
 
@@ -25,7 +25,7 @@ const searchSchema = Joi.object({
 const redditSearchSchema = Joi.object({
   query: Joi.string().min(1).max(500).required(),
   language: Joi.string().length(2).default('en'),
-  timeFilter: Joi.string().valid('hour', 'day', 'week', 'month', 'year', 'all').default('week')
+  timeFilter: Joi.string().valid('hour', 'day', 'week', 'month', '3months', '6months', 'year', 'all').default('week')
 });
 
 // X search validation schema
