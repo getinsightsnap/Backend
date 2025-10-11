@@ -3,18 +3,46 @@ const logger = require('../utils/logger');
 
 class EmailService {
   constructor() {
-    // Configure email transporter
-    this.transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: process.env.SMTP_PORT || 587,
-      secure: false, // true for 465, false for other ports
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASSWORD
-      }
-    });
+    this.transporter = null;
+    this.adminEmail = null;
+    this.isConfigured = false;
+    
+    // Only initialize if SMTP credentials are available
+    this.checkConfiguration();
+  }
 
-    this.adminEmail = process.env.ADMIN_EMAIL || 'admin@insightsnap.co';
+  // Check if SMTP is properly configured
+  checkConfiguration() {
+    if (process.env.SMTP_USER && process.env.SMTP_PASSWORD) {
+      try {
+        this.transporter = nodemailer.createTransport({
+          host: process.env.SMTP_HOST || 'smtp.gmail.com',
+          port: parseInt(process.env.SMTP_PORT) || 587,
+          secure: false, // true for 465, false for other ports
+          auth: {
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASSWORD
+          }
+        });
+        this.adminEmail = process.env.ADMIN_EMAIL || 'admin@insightsnap.co';
+        this.isConfigured = true;
+        console.log('✅ Email service configured successfully');
+      } catch (error) {
+        console.warn('⚠️ Failed to configure email service:', error.message);
+        this.isConfigured = false;
+      }
+    } else {
+      console.log('📧 Email service disabled - SMTP credentials not configured');
+      this.isConfigured = false;
+    }
+  }
+
+  // Initialize transporter lazily when first needed (fallback method)
+  initTransporter() {
+    if (!this.transporter && this.isConfigured) {
+      return this.checkConfiguration();
+    }
+    return this.transporter;
   }
 
   /**
@@ -22,8 +50,9 @@ class EmailService {
    */
   async notifyNewSignup(userData) {
     try {
-      if (!process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
-        logger.warn('⚠️ SMTP credentials not configured, skipping email notification');
+      // Check if email service is configured
+      if (!this.isConfigured || !this.transporter) {
+        logger.info('📧 Email notification skipped - SMTP not configured');
         return { success: false, message: 'Email service not configured' };
       }
 
@@ -179,6 +208,10 @@ This is an automated notification from InsightSnap
    */
   async testConnection() {
     try {
+      if (!this.isConfigured || !this.transporter) {
+        return { success: false, error: 'Email service not configured' };
+      }
+      
       await this.transporter.verify();
       logger.info('✅ Email service connection verified');
       return { success: true, message: 'Email service configured correctly' };
@@ -186,6 +219,19 @@ This is an automated notification from InsightSnap
       logger.error('❌ Email service connection failed:', error);
       return { success: false, error: error.message };
     }
+  }
+
+  /**
+   * Get email service status
+   */
+  getStatus() {
+    return {
+      configured: this.isConfigured,
+      hasTransporter: !!this.transporter,
+      adminEmail: this.adminEmail,
+      smtpHost: process.env.SMTP_HOST || 'smtp.gmail.com',
+      smtpPort: process.env.SMTP_PORT || 587
+    };
   }
 }
 
