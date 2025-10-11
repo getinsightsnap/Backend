@@ -8,7 +8,11 @@ class RedditService {
 
   static async searchPosts(query, language = 'en', timeFilter = 'week') {
     const startTime = Date.now();
-    logger.info(`🔍 Starting Reddit search for: "${query}"`);
+    logger.info(`🔍 Starting Reddit search for: "${query}" (timeFilter: ${timeFilter})`);
+
+    // Map custom time filters to Reddit's supported values
+    const redditTimeFilter = this.mapTimeFilter(timeFilter);
+    logger.debug(`Mapped timeFilter ${timeFilter} to Reddit's ${redditTimeFilter}`);
 
     try {
       const allPosts = [];
@@ -25,7 +29,7 @@ class RedditService {
       for (let i = 0; i < subreddits.length; i += concurrencyLimit) {
         const batch = subreddits.slice(i, i + concurrencyLimit);
         const batchPromises = batch.map(subreddit => 
-          this.searchSubreddit(subreddit, query, language)
+          this.searchSubreddit(subreddit, query, language, redditTimeFilter)
         );
         
         const batchResults = await Promise.allSettled(batchPromises);
@@ -45,7 +49,7 @@ class RedditService {
       if (allPosts.length < 20) {
         try {
           logger.info('📡 Performing global Reddit search...');
-          const globalPosts = await this.performGlobalSearch(query, timeFilter);
+          const globalPosts = await this.performGlobalSearch(query, redditTimeFilter);
           allPosts.push(...globalPosts);
         } catch (error) {
           logger.warn('Global Reddit search failed:', error.message);
@@ -69,9 +73,10 @@ class RedditService {
     }
   }
 
-  static async searchSubreddit(subreddit, query, language) {
+  static async searchSubreddit(subreddit, query, language, timeFilter = 'week') {
     try {
-      const url = `${this.baseUrl}/r/${subreddit}/hot.json?limit=25`;
+      // Use top posts with time filter instead of hot posts
+      const url = `${this.baseUrl}/r/${subreddit}/top.json?t=${timeFilter}&limit=25`;
       
       const response = await axios.get(url, {
         headers: { 'User-Agent': this.userAgent },
@@ -88,7 +93,7 @@ class RedditService {
         .map(post => this.formatPost(post))
         .slice(0, 5);
 
-      logger.debug(`Found ${posts.length} relevant posts in r/${subreddit}`);
+      logger.debug(`Found ${posts.length} relevant posts in r/${subreddit} (timeFilter: ${timeFilter})`);
       return posts;
 
     } catch (error) {
@@ -182,6 +187,23 @@ class RedditService {
       seen.add(post.id);
       return true;
     });
+  }
+
+  static mapTimeFilter(timeFilter) {
+    // Map custom time filters to Reddit's supported values
+    // Reddit supports: hour, day, week, month, year, all
+    const mapping = {
+      'hour': 'hour',
+      'day': 'day',
+      'week': 'week',
+      'month': 'month',
+      '3months': 'year', // Reddit doesn't have 3-month, use year to get broader results
+      '6months': 'year', // Reddit doesn't have 6-month, use year
+      'year': 'year',
+      'all': 'all'
+    };
+    
+    return mapping[timeFilter] || 'week';
   }
 }
 
