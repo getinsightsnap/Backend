@@ -8,7 +8,7 @@ class RedditService {
 
   static async searchPosts(query, language = 'en', timeFilter = 'week') {
     const startTime = Date.now();
-    logger.info(`🔍 Starting Reddit search for: "${query}" (timeFilter: ${timeFilter})`);
+    logger.info(`🔍 Starting dynamic Reddit search for: "${query}" (timeFilter: ${timeFilter})`);
 
     // Map custom time filters to Reddit's supported values
     const redditTimeFilter = this.mapTimeFilter(timeFilter);
@@ -17,31 +17,42 @@ class RedditService {
     try {
       const allPosts = [];
       
-      // Search popular subreddits
-      const subreddits = [
-        'AskReddit', 'worldnews', 'news', 'entrepreneur', 'business',
-        'startups', 'marketing', 'technology', 'programming', 'investing',
-        'personalfinance', 'productivity', 'careerguidance', 'smallbusiness'
+      // Step 1: Find relevant subreddits dynamically based on query
+      const relevantSubreddits = await this.findRelevantSubreddits(query);
+      logger.info(`🎯 Found ${relevantSubreddits.length} relevant subreddits for "${query}"`);
+
+      // Step 2: Add fallback subreddits for broader coverage
+      const fallbackSubreddits = [
+        'entrepreneur', 'business', 'startups', 'marketing', 'technology', 
+        'programming', 'investing', 'personalfinance', 'productivity', 
+        'careerguidance', 'smallbusiness'
       ];
 
-      // Search each subreddit in parallel (with concurrency limit)
-      const concurrencyLimit = 3;
-      for (let i = 0; i < subreddits.length; i += concurrencyLimit) {
-        const batch = subreddits.slice(i, i + concurrencyLimit);
+      // Combine relevant and fallback subreddits (remove duplicates)
+      const allSubreddits = [...new Set([...relevantSubreddits, ...fallbackSubreddits])];
+      logger.info(`📊 Total subreddits to search: ${allSubreddits.length}`);
+
+      // Step 3: Search each subreddit in parallel (with concurrency limit)
+      const concurrencyLimit = 4; // Increased for better performance
+      for (let i = 0; i < allSubreddits.length; i += concurrencyLimit) {
+        const batch = allSubreddits.slice(i, i + concurrencyLimit);
         const batchPromises = batch.map(subreddit => 
           this.searchSubreddit(subreddit, query, language, redditTimeFilter)
         );
         
         const batchResults = await Promise.allSettled(batchPromises);
-        batchResults.forEach(result => {
+        batchResults.forEach((result, index) => {
           if (result.status === 'fulfilled' && result.value) {
             allPosts.push(...result.value);
+            logger.debug(`✅ ${batch[index]}: ${result.value.length} posts`);
+          } else {
+            logger.warn(`❌ ${batch[index]}: ${result.reason || result.value?.error || 'Unknown error'}`);
           }
         });
 
         // Rate limiting between batches
-        if (i + concurrencyLimit < subreddits.length) {
-          await new Promise(resolve => setTimeout(resolve, 500));
+        if (i + concurrencyLimit < allSubreddits.length) {
+          await new Promise(resolve => setTimeout(resolve, 300)); // Reduced delay
         }
       }
 
@@ -204,6 +215,129 @@ class RedditService {
     };
     
     return mapping[timeFilter] || 'week';
+  }
+
+  static async findRelevantSubreddits(query) {
+    try {
+      logger.info(`🔍 Finding relevant subreddits for: "${query}"`);
+      
+      // Clean and prepare search terms
+      const searchTerms = query.toLowerCase()
+        .replace(/[^\w\s]/g, ' ') // Remove special characters
+        .split(/\s+/)
+        .filter(term => term.length > 2) // Remove short words
+        .slice(0, 5); // Limit to 5 most important terms
+
+      const relevantSubreddits = new Set();
+
+      // Method 1: Use Reddit's subreddit search API
+      try {
+        const searchUrl = `${this.baseUrl}/subreddits/search.json?q=${encodeURIComponent(query)}&limit=25&sort=relevance`;
+        const response = await axios.get(searchUrl, {
+          headers: { 'User-Agent': this.userAgent },
+          timeout: this.timeout
+        });
+
+        if (response.data?.data?.children) {
+          response.data.data.children.forEach(subreddit => {
+            const subName = subreddit.data.display_name;
+            if (subName && !this.isExcludedSubreddit(subName)) {
+              relevantSubreddits.add(subName);
+            }
+          });
+          logger.info(`📊 Found ${response.data.data.children.length} subreddits via Reddit search API`);
+        }
+      } catch (error) {
+        logger.warn('Reddit subreddit search API failed, using fallback method:', error.message);
+      }
+
+      // Method 2: Use global search to find subreddits mentioned in posts
+      try {
+        const globalSearchUrl = `${this.baseUrl}/search.json?q=${encodeURIComponent(query)}&limit=50&sort=relevance&type=link`;
+        const response = await axios.get(globalSearchUrl, {
+          headers: { 'User-Agent': this.userAgent },
+          timeout: this.timeout
+        });
+
+        if (response.data?.data?.children) {
+          response.data.data.children.forEach(post => {
+            const subreddit = post.data.subreddit;
+            if (subreddit && !this.isExcludedSubreddit(subreddit)) {
+              relevantSubreddits.add(subreddit);
+            }
+          });
+          logger.info(`📊 Found ${response.data.data.children.length} subreddits via global search`);
+        }
+      } catch (error) {
+        logger.warn('Reddit global search failed:', error.message);
+      }
+
+      // Method 3: Keyword-based subreddit suggestions
+      const keywordSuggestions = this.getSubredditSuggestionsByKeywords(searchTerms);
+      keywordSuggestions.forEach(sub => relevantSubreddits.add(sub));
+
+      // Convert to array and limit results
+      const result = Array.from(relevantSubreddits).slice(0, 30); // Limit to top 30
+      logger.info(`🎯 Total relevant subreddits found: ${result.length}`);
+      
+      return result;
+
+    } catch (error) {
+      logger.error('Error finding relevant subreddits:', error);
+      return []; // Return empty array on error
+    }
+  }
+
+  static isExcludedSubreddit(subreddit) {
+    const excluded = [
+      'AskReddit', 'worldnews', 'news', 'politics', 'funny', 'memes',
+      'gaming', 'pics', 'videos', 'aww', 'mildlyinteresting', 'todayilearned',
+      'Showerthoughts', 'LifeProTips', 'explainlikeimfive', 'unpopularopinion',
+      'AmItheAsshole', 'relationship_advice', 'relationships', 'tifu',
+      'gonewild', 'nsfw', 'sex', 'dating', 'marriage', 'divorce'
+    ];
+    return excluded.includes(subreddit);
+  }
+
+  static getSubredditSuggestionsByKeywords(keywords) {
+    const suggestions = [];
+    
+    // AI/Technology related
+    if (keywords.some(k => ['ai', 'artificial', 'intelligence', 'machine', 'learning', 'ml'].includes(k))) {
+      suggestions.push('artificial', 'MachineLearning', 'AI', 'datascience', 'computervision', 'deeplearning', 'nlp');
+    }
+    
+    // Marketing related
+    if (keywords.some(k => ['marketing', 'advertising', 'promotion', 'brand', 'campaign'].includes(k))) {
+      suggestions.push('marketing', 'digitalmarketing', 'socialmedia', 'content_marketing', 'marketingautomation', 'advertising', 'PPC', 'SEO', 'growthmarketing');
+    }
+    
+    // Business related
+    if (keywords.some(k => ['business', 'startup', 'entrepreneur', 'company', 'corporate'].includes(k))) {
+      suggestions.push('entrepreneur', 'startups', 'business', 'smallbusiness', 'investing', 'personalfinance');
+    }
+    
+    // Technology related
+    if (keywords.some(k => ['tech', 'technology', 'software', 'programming', 'coding', 'development'].includes(k))) {
+      suggestions.push('technology', 'programming', 'software', 'webdev', 'cscareerquestions', 'learnprogramming');
+    }
+    
+    // Health/Fitness related
+    if (keywords.some(k => ['health', 'fitness', 'workout', 'exercise', 'nutrition', 'diet'].includes(k))) {
+      suggestions.push('fitness', 'loseit', 'gainit', 'bodybuilding', 'nutrition', 'health');
+    }
+    
+    // Finance related
+    if (keywords.some(k => ['money', 'finance', 'investment', 'trading', 'crypto', 'bitcoin'].includes(k))) {
+      suggestions.push('investing', 'personalfinance', 'cryptocurrency', 'stocks', 'trading');
+    }
+    
+    // Education related
+    if (keywords.some(k => ['learn', 'education', 'study', 'course', 'training', 'skill'].includes(k))) {
+      suggestions.push('learnprogramming', 'studytips', 'college', 'university', 'careerguidance');
+    }
+
+    return suggestions;
   }
 }
 
