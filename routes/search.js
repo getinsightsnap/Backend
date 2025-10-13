@@ -107,6 +107,36 @@ router.get('/debug', async (req, res) => {
   });
 });
 
+// Test endpoint to check YouTube specifically
+router.get('/test-youtube', async (req, res) => {
+  try {
+    const query = req.query.q || 'AI marketing';
+    const timeFilter = req.query.timeFilter || 'week';
+    
+    logger.info(`🧪 Testing YouTube search for: "${query}"`);
+    
+    const posts = await YouTubeService.searchPosts(query, 'en', timeFilter, 10);
+    
+    res.json({
+      success: true,
+      query,
+      timeFilter,
+      postsCount: posts.length,
+      posts: posts.slice(0, 3), // Return first 3 for debugging
+      apiKeyConfigured: !!process.env.YOUTUBE_API_KEY,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('YouTube test error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: error.stack,
+      apiKeyConfigured: !!process.env.YOUTUBE_API_KEY
+    });
+  }
+});
+
 // Main search endpoint
 router.post('/', validateSearchRequest, async (req, res) => {
   try {
@@ -138,10 +168,17 @@ router.post('/', validateSearchRequest, async (req, res) => {
 
     // YouTube search
     if (platforms.includes('youtube')) {
+      logger.info('📺 YouTube search initiated...');
       promises.push(
         YouTubeService.searchPosts(query, language, timeFilter, 50)
-          .then(posts => ({ platform: 'youtube', posts, success: true }))
-          .catch(error => ({ platform: 'youtube', error: error.message, success: false }))
+          .then(posts => {
+            logger.info(`✅ YouTube search completed: ${posts.length} posts`);
+            return { platform: 'youtube', posts, success: true };
+          })
+          .catch(error => {
+            logger.error(`❌ YouTube search failed: ${error.message}`);
+            return { platform: 'youtube', error: error.message, success: false };
+          })
       );
     }
 
@@ -166,7 +203,16 @@ router.post('/', validateSearchRequest, async (req, res) => {
     const errors = [];
     const successfulPlatforms = [];
     
-    apiResults.forEach(result => {
+    logger.info(`📦 Processing ${apiResults.length} API results...`);
+    
+    apiResults.forEach((result, index) => {
+      logger.debug(`Result ${index + 1}:`, { 
+        status: result.status, 
+        platform: result.value?.platform,
+        postsCount: result.value?.posts?.length,
+        success: result.value?.success
+      });
+      
       if (result.status === 'fulfilled' && result.value.success) {
         allPosts.push(...result.value.posts);
         successfulPlatforms.push(result.value.platform);
@@ -178,6 +224,8 @@ router.post('/', validateSearchRequest, async (req, res) => {
         logger.warn(`❌ ${platform} failed: ${error}`);
       }
     });
+    
+    logger.info(`📊 Total posts collected: ${allPosts.length} from platforms: [${successfulPlatforms.join(', ')}]`);
 
     // Log success rate for monitoring
     const successRate = (successfulPlatforms.length / promises.length) * 100;
