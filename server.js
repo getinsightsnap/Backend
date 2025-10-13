@@ -1,115 +1,178 @@
 const express = require('express');
-const helmet = require('helmet');
-const compression = require('compression');
-const morgan = require('morgan');
-const rateLimit = require('express-rate-limit');
-require('dotenv').config();
+const RedditService = require('../services/redditService');
+const XService = require('../services/xService');
+const AIService = require('../services/aiService');
+const { validateSearchRequest } = require('../middleware/validation');
+const logger = require('../utils/logger');
 
-const logger = require('./utils/logger');
-const corsMiddleware = require('./middleware/cors');
-const searchRoutes = require('./routes/search');
-const redditRoutes = require('./routes/reddit');
-const xRoutes = require('./routes/x');
+const router = express.Router();
 
-const app = express();
-const PORT = process.env.PORT || 3001;
+// Main search endpoint
+router.post('/', validateSearchRequest, async (req, res) => {
+  try {
+    const { query, platforms, language, timeFilter } = req.body;
+    
+    logger.info(`🔍 Search request: "${query}" on platforms: ${platforms.join(', ')}`);
+    
+    const startTime = Date.now();
+    const allPosts = [];
 
-// Security middleware
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
+    // Parallel API calls with timeout
+    const promises = [];
+    
+    if (platforms.includes('reddit')) {
+      promises.push(
+        RedditService.searchPosts(query, language, timeFilter)
+          .then(posts => ({ platform: 'reddit', posts, success: true }))
+          .catch(error => ({ platform: 'reddit', error: error.message, success: false }))
+      );
+    }
+    
+    if (platforms.includes('x')) {
+      promises.push(
+        XService.searchPosts(query, language, timeFilter, 50)
+          .then(posts => ({ platform: 'x', posts, success: true }))
+          .catch(error => ({ platform: 'x', error: error.message, success: false }))
+      );
+    }
 
-// CORS configuration
-app.use(corsMiddleware);
+    // YouTube placeholder (not implemented yet)
+    if (platforms.includes('youtube')) {
+      promises.push(
+        Promise.resolve({ platform: 'youtube', posts: [], success: true, message: 'YouTube API not implemented yet' })
+      );
+    }
 
-// Compression middleware
-app.use(compression());
+    // Wait for all API calls with overall timeout (increased for high traffic)
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Search timeout')), 45000) // Increased to 45 seconds
+    );
 
-// Logging middleware
-app.use(morgan('combined', { stream: { write: message => logger.info(message.trim()) } }));
+    let apiResults;
+    try {
+      apiResults = await Promise.race([
+        Promise.allSettled(promises),
+        timeoutPromise
+      ]);
+    } catch (timeoutError) {
+      // If timeout occurs, still try to get partial results
+      logger.warn('⚠️ Search timeout occurred, attempting to get partial results');
+      apiResults = await Promise.allSettled(promises);
+    }
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // limit each IP to 100 requests per windowMs
-  message: {
-    error: 'Too many requests from this IP, please try again later.',
-    retryAfter: Math.ceil((parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 900000) / 1000)
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
+    // Process results with better error handling
+    const errors = [];
+    const successfulPlatforms = [];
+    
+    apiResults.forEach(result => {
+      if (result.status === 'fulfilled' && result.value.success) {
+        allPosts.push(...result.value.posts);
+        successfulPlatforms.push(result.value.platform);
+        logger.info(`✅ ${result.value.platform}: ${result.value.posts.length} posts`);
+      } else {
+        const error = result.status === 'fulfilled' ? result.value.error : result.reason?.message || 'Unknown error';
+        const platform = result.value?.platform || 'unknown';
+        errors.push(`${platform}: ${error}`);
+        logger.warn(`❌ ${platform} failed: ${error}`);
+      }
+    });
+
+    // Log success rate for monitoring
+    const successRate = (successfulPlatforms.length / promises.length) * 100;
+    logger.info(`📊 API Success Rate: ${successRate.toFixed(0)}% (${successfulPlatforms.length}/${promises.length} platforms)`);
+
+    // If all platforms failed, return helpful error
+    if (allPosts.length === 0 && errors.length > 0) {
+      logger.error('🚨 All platforms failed to return results');
+      return res.status(503).json({
+        success: false,
+        error: 'Service temporarily unavailable',
+        message: 'All data sources are currently unavailable. This may be due to high traffic or API rate limits. Please try again in a few minutes.',
+        details: errors,
+        retryAfter: 60, // Suggest retry after 60 seconds
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // Categorize posts using AI
+    let categorizedResults = {
+      painPoints: [],
+      trendingIdeas: [],
+      contentIdeas: []
+    };
+
+    if (allPosts.length > 0) {
+      try {
+        categorizedResults = await AIService.categorizePosts(allPosts, query);
+      } catch (error) {
+        logger.error('AI categorization failed:', error);
+        // Fallback to simple categorization
+        categorizedResults = AIService.simpleCategorization(allPosts);
+      }
+    }
+
+    const duration = Date.now() - startTime;
+    const totalPosts = allPosts.length;
+    
+    logger.info(`🎉 Search completed: ${totalPosts} total posts in ${duration}ms`);
+
+    // Response with relevance analysis
+    res.json({
+      success: true,
+      data: categorizedResults,
+      metadata: {
+        query,
+        platforms,
+        totalPosts,
+        duration,
+        errors: errors.length > 0 ? errors : undefined,
+        relevanceAnalysis: categorizedResults.relevanceAnalysis,
+        timestamp: new Date().toISOString()
+      }
+    });
+
+  } catch (error) {
+    logger.error('Search endpoint error:', error);
+    
+    res.status(500).json({
+      success: false,
+      error: 'Search failed',
+      message: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
-app.use('/api/', limiter);
-
-// Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+// Health check for search service
+router.get('/health', (req, res) => {
+  res.json({
+    status: 'OK',
+    service: 'search',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    environment: process.env.NODE_ENV || 'development'
+    availablePlatforms: ['reddit', 'x', 'youtube']
   });
 });
 
-// API routes
-app.use('/api/search', searchRoutes);
-app.use('/api/reddit', redditRoutes);
-app.use('/api/x', xRoutes);
-
-// 404 handler
-app.use('*', (req, res) => {
-  res.status(404).json({
-    error: 'Not Found',
-    message: `Route ${req.originalUrl} not found`,
-    availableRoutes: [
-      'GET /health',
-      'POST /api/search',
-      'POST /api/reddit/search',
-      'POST /api/x/search'
-    ]
-  });
+// Get search statistics
+router.get('/stats', async (req, res) => {
+  try {
+    // This could be expanded to include actual statistics from a database
+    res.json({
+      totalSearches: 0, // Would come from database
+      popularQueries: [], // Would come from database
+      platformStats: {
+        reddit: { available: true, lastChecked: new Date().toISOString() },
+        x: { available: !!process.env.X_BEARER_TOKEN, lastChecked: new Date().toISOString() },
+        youtube: { available: false, lastChecked: new Date().toISOString() }
+      }
+    });
+  } catch (error) {
+    logger.error('Stats endpoint error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch statistics'
+    });
+  }
 });
 
-// Global error handler
-app.use((err, req, res, next) => {
-  logger.error('Unhandled error:', {
-    error: err.message,
-    stack: err.stack,
-    url: req.url,
-    method: req.method,
-    ip: req.ip
-  });
-
-  const isDevelopment = process.env.NODE_ENV === 'development';
-  
-  res.status(err.status || 500).json({
-    error: 'Internal Server Error',
-    message: isDevelopment ? err.message : 'Something went wrong',
-    ...(isDevelopment && { stack: err.stack })
-  });
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down gracefully');
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  logger.info('SIGINT received, shutting down gracefully');
-  process.exit(0);
-});
-
-// Start server
-app.listen(PORT, () => {
-  logger.info(`🚀 InsightSnap Backend Server running on port ${PORT}`);
-  logger.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  logger.info(`🔗 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
-});
-
-module.exports = app;
+module.exports = router;
