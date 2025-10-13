@@ -5,10 +5,62 @@ class RedditService {
   static userAgent = 'InsightSnap/1.0.0';
   static baseUrl = 'https://www.reddit.com';
   static timeout = 10000; // 10 seconds
+  static accessToken = null;
+  static tokenExpiry = null;
+
+  static async getAccessToken() {
+    // Check if we have valid credentials
+    const clientId = process.env.REDDIT_CLIENT_ID;
+    const clientSecret = process.env.REDDIT_CLIENT_SECRET;
+    
+    if (!clientId || !clientSecret) {
+      logger.debug('Reddit API credentials not configured, using unauthenticated requests');
+      return null;
+    }
+
+    // Check if we have a valid token that hasn't expired
+    if (this.accessToken && this.tokenExpiry && Date.now() < this.tokenExpiry) {
+      return this.accessToken;
+    }
+
+    try {
+      logger.info('🔑 Authenticating with Reddit API...');
+      
+      const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+      
+      const response = await axios.post(
+        'https://www.reddit.com/api/v1/access_token',
+        'grant_type=client_credentials',
+        {
+          headers: {
+            'Authorization': `Basic ${auth}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': this.userAgent
+          },
+          timeout: this.timeout
+        }
+      );
+
+      this.accessToken = response.data.access_token;
+      // Set expiry to 50 minutes (tokens last 1 hour, refresh before expiry)
+      this.tokenExpiry = Date.now() + (50 * 60 * 1000);
+      
+      logger.info('✅ Reddit authentication successful');
+      return this.accessToken;
+      
+    } catch (error) {
+      logger.error('Reddit authentication failed:', error.message);
+      logger.warn('Falling back to unauthenticated requests');
+      return null;
+    }
+  }
 
   static async searchPosts(query, language = 'en', timeFilter = 'week') {
     const startTime = Date.now();
     logger.info(`🔍 Starting dynamic Reddit search for: "${query}" (timeFilter: ${timeFilter})`);
+
+    // Get access token if available
+    const accessToken = await this.getAccessToken();
 
     // Map custom time filters to Reddit's supported values
     const redditTimeFilter = this.mapTimeFilter(timeFilter);
@@ -37,7 +89,7 @@ class RedditService {
       for (let i = 0; i < allSubreddits.length; i += concurrencyLimit) {
         const batch = allSubreddits.slice(i, i + concurrencyLimit);
         const batchPromises = batch.map(subreddit => 
-          this.searchSubreddit(subreddit, query, language, redditTimeFilter)
+          this.searchSubreddit(subreddit, query, language, redditTimeFilter, accessToken)
         );
         
         const batchResults = await Promise.allSettled(batchPromises);
@@ -84,13 +136,19 @@ class RedditService {
     }
   }
 
-  static async searchSubreddit(subreddit, query, language, timeFilter = 'week') {
+  static async searchSubreddit(subreddit, query, language, timeFilter = 'week', accessToken = null) {
     try {
-      // Use top posts with time filter instead of hot posts
-      const url = `${this.baseUrl}/r/${subreddit}/top.json?t=${timeFilter}&limit=25`;
+      // Use oauth.reddit.com if authenticated, otherwise use www.reddit.com
+      const baseUrl = accessToken ? 'https://oauth.reddit.com' : this.baseUrl;
+      const url = `${baseUrl}/r/${subreddit}/top.json?t=${timeFilter}&limit=25`;
+      
+      const headers = { 'User-Agent': this.userAgent };
+      if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`;
+      }
       
       const response = await axios.get(url, {
-        headers: { 'User-Agent': this.userAgent },
+        headers: headers,
         timeout: this.timeout
       });
 
