@@ -150,6 +150,8 @@ Only include the JSON response, no other text.`;
   }
 
   static simpleCategorization(posts, query = '') {
+    logger.info(`🔄 Using simple categorization for ${posts.length} posts with query: "${query}"`);
+    
     // Keywords that indicate promoted/sponsored content (to exclude)
     const promotedKeywords = [
       'sponsored', 'promoted', 'ad', 'advertisement', 'paid partnership',
@@ -209,28 +211,19 @@ Only include the JSON response, no other text.`;
         return null;
       }
 
-      // Check relevance to query (more strict keyword matching)
+      // Check relevance to query (RELAXED filtering - only exclude obviously irrelevant)
       const queryWords = queryLower.split(' ').filter(word => word.length > 2);
       
-      // For multi-word queries, require at least 50% of words to match
-      const minWordsRequired = Math.ceil(queryWords.length * 0.5);
+      // For single word queries, must match
+      // For multi-word queries, require at least 1 word to match (relaxed from 50%)
+      const minWordsRequired = queryWords.length === 1 ? 1 : Math.max(1, Math.ceil(queryWords.length * 0.3));
       const matchedWords = queryWords.filter(word => content.includes(word));
       
       const hasQueryRelevance = matchedWords.length >= minWordsRequired;
       
-      // Additional check: exclude posts that mention query words but are about different topics
-      const irrelevantTopics = [
-        'lab research', 'medical research', 'scientific research', 'clinical research',
-        'academic research', 'university research', 'pharmaceutical', 'medicine',
-        'health study', 'medical study', 'clinical trial', 'scientific study'
-      ];
-      
-      const isAboutDifferentTopic = irrelevantTopics.some(topic => 
-        content.includes(topic) && !content.includes('content') && !content.includes('marketing')
-      );
-      
-      if (!hasQueryRelevance || isAboutDifferentTopic) {
+      if (!hasQueryRelevance) {
         excludedIrrelevant++;
+        logger.debug(`Excluded irrelevant post: "${post.content.substring(0, 50)}..." (matched ${matchedWords.length}/${queryWords.length} query words)`);
         return null;
       }
       
@@ -328,6 +321,15 @@ Only include the JSON response, no other text.`;
     const totalRelevant = painPoints.length + trendingIdeas.length + contentIdeas.length;
 
     logger.info(`✅ Enhanced categorization: ${painPoints.length} pain points, ${trendingIdeas.length} trending (${trendingIdeas.filter(p => (p.engagement || 0) > avgEngagement * 2).length} accelerating), ${contentIdeas.length} content ideas`);
+    logger.info(`📊 Categorization breakdown: ${posts.length} total → ${totalRelevant} categorized, ${excludedPromoted} promoted, ${excludedIrrelevant} irrelevant`);
+    
+    // DEBUG: Log if categories are empty
+    if (painPoints.length === 0) {
+      logger.warn(`⚠️ No pain points found. Sample posts: ${posts.slice(0, 2).map(p => p.content.substring(0, 50)).join(', ')}`);
+    }
+    if (trendingIdeas.length === 0) {
+      logger.warn(`⚠️ No trending ideas found. Sample posts: ${posts.slice(0, 2).map(p => p.content.substring(0, 50)).join(', ')}`);
+    }
 
     return {
       painPoints: painPoints.slice(0, 50),
