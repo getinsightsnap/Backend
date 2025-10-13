@@ -20,7 +20,7 @@ class AIService {
       
       if (!apiKey) {
         logger.warn('Perplexity API key not configured, using simple categorization');
-        return this.simpleCategorization(posts);
+        return this.simpleCategorization(posts, query);
       }
 
       // Increase post limit to 100 for better analysis
@@ -28,7 +28,8 @@ class AIService {
       logger.info(`🤖 Categorizing ${maxPosts} posts using AI with sentiment analysis...`);
       
       // Calculate average engagement for context
-      const avgEngagement = posts.reduce((sum, post) => sum + (post.engagement || 0), 0) / posts.length;
+      const totalEngagement = posts.reduce((sum, post) => sum + (post.engagement || 0), 0);
+      const avgEngagement = posts.length > 0 ? totalEngagement / posts.length : 0;
 
       // Prepare posts for AI analysis with timestamps, engagement, and context
       const postsText = posts.slice(0, maxPosts).map((post, index) => {
@@ -127,6 +128,12 @@ Only include the JSON response, no other text.`;
 
     } catch (error) {
       logger.error('AI categorization error:', error);
+      logger.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        postsCount: posts?.length || 0,
+        query: query
+      });
       logger.info('Falling back to simple categorization');
       return this.simpleCategorization(posts, query);
     }
@@ -176,7 +183,8 @@ Only include the JSON response, no other text.`;
     ];
 
     // Calculate average engagement for velocity detection
-    const avgEngagement = posts.reduce((sum, post) => sum + (post.engagement || 0), 0) / posts.length;
+    const totalEngagement = posts.reduce((sum, post) => sum + (post.engagement || 0), 0);
+    const avgEngagement = posts.length > 0 ? totalEngagement / posts.length : 0;
     
     logger.info(`📊 Average engagement across ${posts.length} posts: ${avgEngagement.toFixed(2)}`);
 
