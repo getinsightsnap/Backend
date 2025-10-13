@@ -27,10 +27,16 @@ class AIService {
       const maxPosts = Math.min(posts.length, 100);
       logger.info(`🤖 Categorizing ${maxPosts} posts using AI with sentiment analysis...`);
       
-      // Prepare posts for AI analysis with timestamps and more context
-      const postsText = posts.slice(0, maxPosts).map((post, index) => 
-        `${index + 1}. [${post.platform}] Posted ${post.timestamp}: ${post.content.substring(0, 180)}...`
-      ).join('\n\n');
+      // Calculate average engagement for context
+      const avgEngagement = posts.reduce((sum, post) => sum + (post.engagement || 0), 0) / posts.length;
+
+      // Prepare posts for AI analysis with timestamps, engagement, and context
+      const postsText = posts.slice(0, maxPosts).map((post, index) => {
+        const engagement = post.engagement || 0;
+        const isHighEngagement = engagement > (avgEngagement * 2);
+        const engagementIndicator = isHighEngagement ? '🔥 HIGH ENGAGEMENT' : '';
+        return `${index + 1}. [${post.platform}] Posted ${post.timestamp} | Engagement: ${engagement} ${engagementIndicator}\n   ${post.content.substring(0, 180)}...`;
+      }).join('\n\n');
 
       const prompt = `Analyze these social media posts and ONLY include posts that are directly relevant to "${query}".
 
@@ -46,12 +52,18 @@ For each RELEVANT post, categorize into three groups:
 
 1. PAIN POINTS: Posts expressing problems, frustrations, or challenges related to "${query}"
 2. TRENDING IDEAS: Posts about popular/viral discussions, news, or emerging trends about "${query}"
+   - PRIORITIZE posts with HIGH ENGAGEMENT (marked with 🔥)
+   - PRIORITIZE recent posts (posted within last few days)
+   - Look for posts that indicate something is "blowing up" or "going viral"
 3. CONTENT IDEAS: Posts offering solutions, tips, tutorials, or valuable insights about "${query}"
 
 Posts to analyze (${maxPosts} total):
 ${postsText}
 
-IMPORTANT: Only include post indices that are DIRECTLY relevant to "${query}". If a post is not about "${query}", do not include it in any category.
+IMPORTANT: 
+- Only include post indices that are DIRECTLY relevant to "${query}"
+- For TRENDING IDEAS, heavily weight posts with high engagement and recent timestamps
+- Posts marked with 🔥 HIGH ENGAGEMENT should be strongly considered for trending category
 
 Respond with JSON:
 {
@@ -163,13 +175,19 @@ Only include the JSON response, no other text.`;
       'step by step', 'easy way', 'quick fix', 'simple', 'clear', 'understand'
     ];
 
+    // Calculate average engagement for velocity detection
+    const avgEngagement = posts.reduce((sum, post) => sum + (post.engagement || 0), 0) / posts.length;
+    
+    logger.info(`📊 Average engagement across ${posts.length} posts: ${avgEngagement.toFixed(2)}`);
+
     const painPoints = [];
     const trendingIdeas = [];
     const contentIdeas = [];
     let excludedPromoted = 0;
     let excludedIrrelevant = 0;
 
-    posts.forEach(post => {
+    // Enhanced scoring with engagement, recency, and velocity
+    const scoredPosts = posts.map(post => {
       const content = post.content.toLowerCase();
       const queryLower = query.toLowerCase();
       
@@ -177,7 +195,7 @@ Only include the JSON response, no other text.`;
       const isPromoted = promotedKeywords.some(keyword => content.includes(keyword));
       if (isPromoted) {
         excludedPromoted++;
-        return; // Skip promoted content
+        return null;
       }
 
       // Check relevance to query (basic keyword matching)
@@ -186,9 +204,35 @@ Only include the JSON response, no other text.`;
       
       if (!hasQueryRelevance) {
         excludedIrrelevant++;
-        return; // Skip irrelevant posts
+        return null;
       }
       
+      // 1. ENGAGEMENT SCORING
+      // Normalize engagement score (0-1 scale)
+      const engagement = post.engagement || 0;
+      const engagementScore = Math.min(engagement / (avgEngagement * 3), 1); // Cap at 3x average
+      
+      // 2. RECENCY WEIGHTING
+      // Calculate how old the post is (in hours)
+      let recencyMultiplier = 1;
+      if (post.timestamp) {
+        try {
+          const postDate = new Date(post.timestamp);
+          const hoursOld = (Date.now() - postDate.getTime()) / (1000 * 60 * 60);
+          // Decay over 1 week (168 hours), recent posts get higher weight
+          recencyMultiplier = Math.max(0.3, 1 - (hoursOld / 336)); // 2 weeks decay, min 0.3
+        } catch (e) {
+          // If timestamp parsing fails, use default multiplier
+          recencyMultiplier = 0.5;
+        }
+      }
+      
+      // 3. VELOCITY DETECTION
+      // Posts with 2x+ average engagement are "accelerating"
+      const isAccelerating = engagement > (avgEngagement * 2);
+      const velocityBonus = isAccelerating ? 1.5 : 1.0;
+      
+      // Base keyword scoring
       const painScore = painPointKeywords.reduce((score, keyword) => 
         score + (content.includes(keyword) ? 1 : 0), 0
       );
@@ -201,11 +245,41 @@ Only include the JSON response, no other text.`;
         score + (content.includes(keyword) ? 1 : 0), 0
       );
 
+      // Apply enhanced scoring to trending (engagement + recency + velocity matter most for trends)
+      const enhancedTrendingScore = (
+        trendingScore * 1.0 +                    // Base keyword score
+        engagementScore * 5.0 +                  // Engagement heavily weighted
+        recencyMultiplier * 3.0 +                // Recent posts favored
+        (isAccelerating ? velocityBonus * 2 : 0) // Accelerating posts get bonus
+      );
+
+      // Pain points and content ideas get moderate engagement boost
+      const enhancedPainScore = painScore + (engagementScore * 2);
+      const enhancedContentScore = contentScore + (engagementScore * 1.5);
+
+      return {
+        post,
+        painScore: enhancedPainScore,
+        trendingScore: enhancedTrendingScore,
+        contentScore: enhancedContentScore,
+        engagement,
+        recencyMultiplier,
+        isAccelerating
+      };
+    }).filter(Boolean); // Remove nulls (promoted/irrelevant posts)
+
+    // Sort by score and categorize
+    scoredPosts.forEach(scored => {
+      const { post, painScore, trendingScore, contentScore, isAccelerating } = scored;
+      
       // Categorize based on highest score
       if (painScore > trendingScore && painScore > contentScore) {
         painPoints.push(post);
       } else if (trendingScore > contentScore) {
         trendingIdeas.push(post);
+        if (isAccelerating) {
+          logger.debug(`🚀 Accelerating trend detected: "${post.content.substring(0, 50)}..." (engagement: ${scored.engagement})`);
+        }
       } else if (contentScore > 0) {
         contentIdeas.push(post);
       } else {
@@ -214,7 +288,19 @@ Only include the JSON response, no other text.`;
       }
     });
 
+    // Sort trending ideas by engagement and recency (most engaging + recent first)
+    trendingIdeas.sort((a, b) => {
+      const engagementDiff = (b.engagement || 0) - (a.engagement || 0);
+      if (Math.abs(engagementDiff) > avgEngagement * 0.5) {
+        return engagementDiff; // Significant engagement difference
+      }
+      // If engagement similar, sort by recency
+      return new Date(b.timestamp || 0) - new Date(a.timestamp || 0);
+    });
+
     const totalRelevant = painPoints.length + trendingIdeas.length + contentIdeas.length;
+
+    logger.info(`✅ Enhanced categorization: ${painPoints.length} pain points, ${trendingIdeas.length} trending (${trendingIdeas.filter(p => (p.engagement || 0) > avgEngagement * 2).length} accelerating), ${contentIdeas.length} content ideas`);
 
     return {
       painPoints: painPoints.slice(0, 50),
