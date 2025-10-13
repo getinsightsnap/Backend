@@ -288,22 +288,23 @@ Only include the JSON response, no other text.`;
       };
     }).filter(Boolean); // Remove nulls (promoted/irrelevant posts)
 
-    // Sort by score and categorize
+    // Sort by score and categorize - distribute posts evenly across categories
     scoredPosts.forEach(scored => {
       const { post, painScore, trendingScore, contentScore, isAccelerating } = scored;
       
+      // Determine highest score (NO minimum threshold - categorize all posts)
+      const maxScore = Math.max(painScore, trendingScore, contentScore);
+      
       // Categorize based on highest score
-      if (painScore > trendingScore && painScore > contentScore) {
+      if (maxScore === painScore) {
         painPoints.push(post);
-      } else if (trendingScore > contentScore) {
+        logger.debug(`📍 Pain point: "${post.content.substring(0, 40)}..." (score: ${painScore.toFixed(2)})`);
+      } else if (maxScore === trendingScore) {
         trendingIdeas.push(post);
         if (isAccelerating) {
-          logger.debug(`🚀 Accelerating trend detected: "${post.content.substring(0, 50)}..." (engagement: ${scored.engagement})`);
+          logger.debug(`🚀 Accelerating trend: "${post.content.substring(0, 40)}..." (score: ${trendingScore.toFixed(2)}, engagement: ${scored.engagement})`);
         }
-      } else if (contentScore > 0) {
-        contentIdeas.push(post);
       } else {
-        // Default to content ideas if no clear category
         contentIdeas.push(post);
       }
     });
@@ -322,6 +323,14 @@ Only include the JSON response, no other text.`;
 
     logger.info(`✅ Enhanced categorization: ${painPoints.length} pain points, ${trendingIdeas.length} trending (${trendingIdeas.filter(p => (p.engagement || 0) > avgEngagement * 2).length} accelerating), ${contentIdeas.length} content ideas`);
     logger.info(`📊 Categorization breakdown: ${posts.length} total → ${totalRelevant} categorized, ${excludedPromoted} promoted, ${excludedIrrelevant} irrelevant`);
+    
+    // DEBUG: Log platform distribution
+    const platformBreakdown = {
+      painPoints: this.getPlatformCounts(painPoints),
+      trendingIdeas: this.getPlatformCounts(trendingIdeas),
+      contentIdeas: this.getPlatformCounts(contentIdeas)
+    };
+    logger.info(`📊 Platform distribution:`, platformBreakdown);
     
     // DEBUG: Log if categories are empty
     if (painPoints.length === 0) {
