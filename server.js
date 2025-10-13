@@ -14,6 +14,10 @@ const xRoutes = require('./routes/x');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Trust proxy - Required for Railway, Heroku, and other platforms behind reverse proxies
+// This allows express-rate-limit to correctly identify users by their real IP
+app.set('trust proxy', 1);
+
 // Security middleware
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
