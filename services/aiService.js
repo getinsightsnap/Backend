@@ -353,6 +353,16 @@ Only include the JSON response, no other text.`;
     };
   }
 
+  static getPlatformCounts(posts) {
+    const counts = { reddit: 0, x: 0, youtube: 0 };
+    posts.forEach(post => {
+      if (counts.hasOwnProperty(post.platform)) {
+        counts[post.platform]++;
+      }
+    });
+    return counts;
+  }
+
   static async generateContentIdeas(query, posts) {
     try {
       const apiKey = process.env.PERPLEXITY_API_KEY;
