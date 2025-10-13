@@ -394,6 +394,11 @@ class RedditService {
     if (keywords.some(k => ['learn', 'education', 'study', 'course', 'training', 'skill'].includes(k))) {
       suggestions.push('learnprogramming', 'studytips', 'college', 'university', 'careerguidance');
     }
+    
+    // Content/Marketing research related
+    if (keywords.some(k => ['content', 'research', 'marketing', 'strategy', 'analysis', 'data'].includes(k))) {
+      suggestions.push('content_marketing', 'digitalmarketing', 'marketing', 'socialmedia', 'analytics', 'dataanalysis', 'strategy');
+    }
 
     return suggestions;
   }
