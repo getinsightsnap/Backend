@@ -42,12 +42,15 @@ class AIService {
       const prompt = `Analyze these social media posts and ONLY include posts that are directly relevant to "${query}".
 
 CRITICAL FILTERING RULES:
-1. ONLY include posts that are directly about "${query}" or closely related topics
+1. ONLY include posts that are DIRECTLY about "${query}" or closely related topics
 2. EXCLUDE promoted content, sponsored posts, or advertisements
 3. EXCLUDE posts that only mention "${query}" in passing without being about the topic
 4. EXCLUDE irrelevant posts that happen to contain the keyword "${query}"
+5. EXCLUDE posts about completely different topics (e.g., if searching for "content research", exclude posts about lab research, medical research, etc.)
+6. BE STRICT: If a post is not clearly and directly about "${query}", do NOT include it
 
 USER SEARCH INTENT: "${query}" - The user wants insights specifically about this topic.
+RELEVANCE THRESHOLD: Only include posts where the main topic/subject is "${query}". Posts that mention "${query}" briefly while discussing something else should be EXCLUDED.
 
 For each RELEVANT post, categorize into three groups:
 
@@ -206,11 +209,27 @@ Only include the JSON response, no other text.`;
         return null;
       }
 
-      // Check relevance to query (basic keyword matching)
+      // Check relevance to query (more strict keyword matching)
       const queryWords = queryLower.split(' ').filter(word => word.length > 2);
-      const hasQueryRelevance = queryWords.some(word => content.includes(word));
       
-      if (!hasQueryRelevance) {
+      // For multi-word queries, require at least 50% of words to match
+      const minWordsRequired = Math.ceil(queryWords.length * 0.5);
+      const matchedWords = queryWords.filter(word => content.includes(word));
+      
+      const hasQueryRelevance = matchedWords.length >= minWordsRequired;
+      
+      // Additional check: exclude posts that mention query words but are about different topics
+      const irrelevantTopics = [
+        'lab research', 'medical research', 'scientific research', 'clinical research',
+        'academic research', 'university research', 'pharmaceutical', 'medicine',
+        'health study', 'medical study', 'clinical trial', 'scientific study'
+      ];
+      
+      const isAboutDifferentTopic = irrelevantTopics.some(topic => 
+        content.includes(topic) && !content.includes('content') && !content.includes('marketing')
+      );
+      
+      if (!hasQueryRelevance || isAboutDifferentTopic) {
         excludedIrrelevant++;
         return null;
       }
