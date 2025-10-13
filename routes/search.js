@@ -91,12 +91,28 @@ function generateNoPostsMessage(query, timeFilter, errors) {
   };
 }
 
+// Debug endpoint to check service health
+router.get('/debug', async (req, res) => {
+  const services = {
+    reddit: { configured: true, status: 'ready' },
+    x: { configured: !!process.env.X_BEARER_TOKEN, status: process.env.X_BEARER_TOKEN ? 'ready' : 'not configured' },
+    youtube: { configured: !!process.env.YOUTUBE_API_KEY, status: process.env.YOUTUBE_API_KEY ? 'ready' : 'not configured' },
+    perplexity: { configured: !!process.env.PERPLEXITY_API_KEY, status: process.env.PERPLEXITY_API_KEY ? 'ready' : 'not configured' }
+  };
+  
+  res.json({
+    success: true,
+    services,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Main search endpoint
 router.post('/', validateSearchRequest, async (req, res) => {
   try {
     const { query, platforms, language, timeFilter } = req.body;
     
-    logger.info(`🔍 Search request: "${query}" on platforms: ${platforms.join(', ')}`);
+    logger.info(`🔍 Search request: "${query}" on platforms: [${platforms.join(', ')}] (language: ${language}, timeFilter: ${timeFilter})`);
     
     const startTime = Date.now();
     const allPosts = [];
