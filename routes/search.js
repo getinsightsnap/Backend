@@ -1,6 +1,7 @@
 const express = require('express');
 const RedditService = require('../services/redditService');
 const XService = require('../services/xService');
+const YouTubeService = require('../services/youtubeService');
 const AIService = require('../services/aiService');
 const { validateSearchRequest } = require('../middleware/validation');
 const logger = require('../utils/logger');
@@ -119,10 +120,12 @@ router.post('/', validateSearchRequest, async (req, res) => {
       );
     }
 
-    // YouTube placeholder (not implemented yet)
+    // YouTube search
     if (platforms.includes('youtube')) {
       promises.push(
-        Promise.resolve({ platform: 'youtube', posts: [], success: true, message: 'YouTube API not implemented yet' })
+        YouTubeService.searchPosts(query, language, timeFilter, 50)
+          .then(posts => ({ platform: 'youtube', posts, success: true }))
+          .catch(error => ({ platform: 'youtube', error: error.message, success: false }))
       );
     }
 
