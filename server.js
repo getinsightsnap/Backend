@@ -11,6 +11,7 @@ const searchRoutes = require('./routes/search');
 const redditRoutes = require('./routes/reddit');
 const xRoutes = require('./routes/x');
 const youtubeRoutes = require('./routes/youtube');
+const ratingRoutes = require('./routes/ratings');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -82,6 +83,7 @@ app.use('/api/search', searchRoutes);
 app.use('/api/reddit', redditRoutes);
 app.use('/api/x', xRoutes);
 app.use('/api/youtube', youtubeRoutes);
+app.use('/api/ratings', ratingRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
