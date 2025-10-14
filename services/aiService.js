@@ -74,9 +74,11 @@ ${postsText}
 CRITICAL REQUIREMENTS:
 - DISTRIBUTE posts across ALL THREE categories (pain points, trending ideas, content ideas)
 - Each category should have at least some posts (aim for balanced distribution)
+- ENSURE platform diversity: try to include posts from Reddit, X (Twitter), and YouTube in each category when possible
 - For TRENDING IDEAS, heavily weight posts with high engagement and recent timestamps
 - Posts marked with 🔥 HIGH ENGAGEMENT should be strongly considered for trending category
 - If a post could fit multiple categories, choose the most appropriate one
+- Prioritize posts from different platforms to ensure diverse perspectives in each category
 
 Respond with JSON:
 {
@@ -319,11 +321,42 @@ Only include the JSON response, no other text.`;
       }
     });
 
-    // Second pass: Ensure all categories have at least some posts
-    // If any category is empty, redistribute from the largest category
+    // Second pass: Ensure all categories have posts AND platform diversity
     const totalPosts = scoredPosts.length;
     const minPostsPerCategory = Math.max(1, Math.floor(totalPosts / 10)); // At least 10% in each category
     
+    // Ensure platform diversity in each category (at least 1 post from each platform if available)
+    const ensurePlatformDiversity = (categoryPosts, categoryName, allAvailablePosts) => {
+      const platforms = ['reddit', 'x', 'youtube'];
+      const currentPlatforms = new Set(categoryPosts.map(p => p.platform));
+      const missingPlatforms = platforms.filter(platform => !currentPlatforms.has(platform));
+      
+      if (missingPlatforms.length > 0) {
+        logger.info(`🔄 ${categoryName} missing platforms: ${missingPlatforms.join(', ')}, adding posts for diversity`);
+        
+        missingPlatforms.forEach(platform => {
+          // Find best post from missing platform that's not already used
+          const usedIds = new Set(categoryPosts.map(p => p.id));
+          const availableFromPlatform = allAvailablePosts
+            .filter(p => p.platform === platform && !usedIds.has(p.id))
+            .sort((a, b) => (b.engagement || 0) - (a.engagement || 0));
+          
+          if (availableFromPlatform.length > 0) {
+            categoryPosts.push(availableFromPlatform[0]);
+            logger.debug(`  Added ${platform} post to ${categoryName}: "${availableFromPlatform[0].content.substring(0, 40)}..."`);
+          }
+        });
+      }
+      
+      return categoryPosts;
+    };
+
+    // Apply platform diversity to each category
+    painPoints = ensurePlatformDiversity(painPoints, 'pain points', scoredPosts.map(s => s.post));
+    trendingIdeas = ensurePlatformDiversity(trendingIdeas, 'trending ideas', scoredPosts.map(s => s.post));
+    contentIdeas = ensurePlatformDiversity(contentIdeas, 'content ideas', scoredPosts.map(s => s.post));
+
+    // Third pass: Fill empty categories with balanced distribution
     if (painPoints.length === 0 && totalPosts > 0) {
       logger.info(`🔄 No pain points found, redistributing from other categories (min: ${minPostsPerCategory})`);
       // Take posts from content ideas first, then trending
