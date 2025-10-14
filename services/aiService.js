@@ -39,41 +39,50 @@ class AIService {
         return `${index + 1}. [${post.platform}] Posted ${post.timestamp} | Engagement: ${engagement} ${engagementIndicator}\n   ${post.content.substring(0, 180)}...`;
       }).join('\n\n');
 
-      const prompt = `Analyze these social media posts and ONLY include posts that are directly relevant to "${query}".
+      const prompt = `Analyze these social media posts related to "${query}". Include posts that are relevant to the topic, even if they mention it in passing or discuss related aspects.
 
-CRITICAL FILTERING RULES:
-1. ONLY include posts that are DIRECTLY about "${query}" or closely related topics
-2. EXCLUDE promoted content, sponsored posts, or advertisements
-3. EXCLUDE posts that only mention "${query}" in passing without being about the topic
-4. EXCLUDE irrelevant posts that happen to contain the keyword "${query}"
-5. EXCLUDE posts about completely different topics (e.g., if searching for "content research", exclude posts about lab research, medical research, etc.)
-6. BE STRICT: If a post is not clearly and directly about "${query}", do NOT include it
+FILTERING RULES:
+1. INCLUDE posts that are about "${query}" or closely related topics
+2. INCLUDE posts that mention "${query}" in context, even if not the main focus
+3. EXCLUDE only obviously promoted content, sponsored posts, or advertisements
+4. EXCLUDE posts that are completely unrelated to "${query}" (e.g., random spam)
+5. BE INCLUSIVE: If a post has any connection to "${query}", include it
 
-USER SEARCH INTENT: "${query}" - The user wants insights specifically about this topic.
-RELEVANCE THRESHOLD: Only include posts where the main topic/subject is "${query}". Posts that mention "${query}" briefly while discussing something else should be EXCLUDED.
+USER SEARCH INTENT: "${query}" - The user wants insights about this topic and related discussions.
 
-For each RELEVANT post, categorize into three groups:
+For each RELEVANT post, categorize into three groups (ensure ALL categories get posts):
 
-1. PAIN POINTS: Posts expressing problems, frustrations, or challenges related to "${query}"
-2. TRENDING IDEAS: Posts about popular/viral discussions, news, or emerging trends about "${query}"
+1. PAIN POINTS: Posts expressing problems, frustrations, challenges, or negative experiences related to "${query}"
+   - Look for complaints, issues, difficulties, struggles
+   - Include posts asking for help or expressing confusion
+   - Even minor frustrations count as pain points
+
+2. TRENDING IDEAS: Posts about popular/viral discussions, news, or emerging trends related to "${query}"
    - PRIORITIZE posts with HIGH ENGAGEMENT (marked with 🔥)
    - PRIORITIZE recent posts (posted within last few days)
    - Look for posts that indicate something is "blowing up" or "going viral"
+   - Include discussions about new features, updates, or developments
+
 3. CONTENT IDEAS: Posts offering solutions, tips, tutorials, or valuable insights about "${query}"
+   - Include educational content, how-to posts, recommendations
+   - Include posts sharing experiences or success stories
+   - Include questions that could inspire content creation
 
 Posts to analyze (${maxPosts} total):
 ${postsText}
 
-IMPORTANT: 
-- Only include post indices that are DIRECTLY relevant to "${query}"
+CRITICAL REQUIREMENTS:
+- DISTRIBUTE posts across ALL THREE categories (pain points, trending ideas, content ideas)
+- Each category should have at least some posts (aim for balanced distribution)
 - For TRENDING IDEAS, heavily weight posts with high engagement and recent timestamps
 - Posts marked with 🔥 HIGH ENGAGEMENT should be strongly considered for trending category
+- If a post could fit multiple categories, choose the most appropriate one
 
 Respond with JSON:
 {
-  "painPoints": [list of RELEVANT post indices about problems with "${query}"],
-  "trendingIdeas": [list of RELEVANT post indices about trends in "${query}"], 
-  "contentIdeas": [list of RELEVANT post indices about solutions for "${query}"],
+  "painPoints": [list of post indices about problems/frustrations with "${query}"],
+  "trendingIdeas": [list of post indices about trends/viral content related to "${query}"], 
+  "contentIdeas": [list of post indices about solutions/insights for "${query}"],
   "relevanceAnalysis": {
     "totalRelevantPosts": number,
     "relevanceScore": 0.0-1.0,
@@ -211,12 +220,12 @@ Only include the JSON response, no other text.`;
         return null;
       }
 
-      // Check relevance to query (RELAXED filtering - only exclude obviously irrelevant)
+      // Check relevance to query (VERY RELAXED filtering - include most posts)
       const queryWords = queryLower.split(' ').filter(word => word.length > 2);
       
       // For single word queries, must match
-      // For multi-word queries, require at least 1 word to match (relaxed from 50%)
-      const minWordsRequired = queryWords.length === 1 ? 1 : Math.max(1, Math.ceil(queryWords.length * 0.3));
+      // For multi-word queries, require at least 1 word to match (very relaxed)
+      const minWordsRequired = queryWords.length === 1 ? 1 : 1; // Always just 1 word for multi-word queries
       const matchedWords = queryWords.filter(word => content.includes(word));
       
       const hasQueryRelevance = matchedWords.length >= minWordsRequired;
@@ -288,7 +297,8 @@ Only include the JSON response, no other text.`;
       };
     }).filter(Boolean); // Remove nulls (promoted/irrelevant posts)
 
-    // Sort by score and categorize - distribute posts evenly across categories
+    // Sort by score and categorize - ensure balanced distribution across all categories
+    // First pass: Categorize posts based on their strongest category
     scoredPosts.forEach(scored => {
       const { post, painScore, trendingScore, contentScore, isAccelerating } = scored;
       
@@ -308,6 +318,44 @@ Only include the JSON response, no other text.`;
         contentIdeas.push(post);
       }
     });
+
+    // Second pass: Ensure all categories have at least some posts
+    // If any category is empty, redistribute from the largest category
+    const totalPosts = scoredPosts.length;
+    const minPostsPerCategory = Math.max(1, Math.floor(totalPosts / 10)); // At least 10% in each category
+    
+    if (painPoints.length === 0 && totalPosts > 0) {
+      logger.info(`🔄 No pain points found, redistributing from other categories (min: ${minPostsPerCategory})`);
+      // Take posts from content ideas first, then trending
+      const postsToMove = [...contentIdeas.slice(0, minPostsPerCategory), ...trendingIdeas.slice(0, minPostsPerCategory)];
+      painPoints.push(...postsToMove.slice(0, minPostsPerCategory));
+      // Remove moved posts from original categories
+      const movedIds = new Set(postsToMove.slice(0, minPostsPerCategory).map(p => p.id));
+      contentIdeas = contentIdeas.filter(p => !movedIds.has(p.id));
+      trendingIdeas = trendingIdeas.filter(p => !movedIds.has(p.id));
+    }
+
+    if (trendingIdeas.length === 0 && totalPosts > 0) {
+      logger.info(`🔄 No trending ideas found, redistributing from other categories (min: ${minPostsPerCategory})`);
+      // Take posts from content ideas first, then pain points
+      const postsToMove = [...contentIdeas.slice(0, minPostsPerCategory), ...painPoints.slice(0, minPostsPerCategory)];
+      trendingIdeas.push(...postsToMove.slice(0, minPostsPerCategory));
+      // Remove moved posts from original categories
+      const movedIds = new Set(postsToMove.slice(0, minPostsPerCategory).map(p => p.id));
+      contentIdeas = contentIdeas.filter(p => !movedIds.has(p.id));
+      painPoints = painPoints.filter(p => !movedIds.has(p.id));
+    }
+
+    if (contentIdeas.length === 0 && totalPosts > 0) {
+      logger.info(`🔄 No content ideas found, redistributing from other categories (min: ${minPostsPerCategory})`);
+      // Take posts from trending first, then pain points
+      const postsToMove = [...trendingIdeas.slice(0, minPostsPerCategory), ...painPoints.slice(0, minPostsPerCategory)];
+      contentIdeas.push(...postsToMove.slice(0, minPostsPerCategory));
+      // Remove moved posts from original categories
+      const movedIds = new Set(postsToMove.slice(0, minPostsPerCategory).map(p => p.id));
+      trendingIdeas = trendingIdeas.filter(p => !movedIds.has(p.id));
+      painPoints = painPoints.filter(p => !movedIds.has(p.id));
+    }
 
     // Sort trending ideas by engagement and recency (most engaging + recent first)
     trendingIdeas.sort((a, b) => {
