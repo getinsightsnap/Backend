@@ -161,14 +161,26 @@ Only include the JSON response, no other text.`;
   }
 
   static simpleCategorization(posts, query = '') {
-    logger.info(`🔄 Using simple categorization for ${posts.length} posts with query: "${query}"`);
-    
-    // Keywords that indicate promoted/sponsored content (to exclude)
-    const promotedKeywords = [
-      'sponsored', 'promoted', 'ad', 'advertisement', 'paid partnership',
-      'affiliate', 'commission', 'buy now', 'click here', 'link in bio',
-      'swipe up', 'use code', 'discount code', 'promo code'
-    ];
+    try {
+      logger.info(`🔄 Using simple categorization for ${posts.length} posts with query: "${query}"`);
+      
+      // Validate posts array
+      if (!posts || !Array.isArray(posts)) {
+        logger.error('Invalid posts array in simpleCategorization');
+        return {
+          painPoints: [],
+          trendingIdeas: [],
+          contentIdeas: [],
+          relevanceAnalysis: { totalRelevantPosts: 0, relevanceScore: 0, excludedPromotedContent: 0, excludedIrrelevantPosts: 0 }
+        };
+      }
+      
+      // Keywords that indicate promoted/sponsored content (to exclude)
+      const promotedKeywords = [
+        'sponsored', 'promoted', 'ad', 'advertisement', 'paid partnership',
+        'affiliate', 'commission', 'buy now', 'click here', 'link in bio',
+        'swipe up', 'use code', 'discount code', 'promo code'
+      ];
 
     // Enhanced keyword lists with sentiment indicators
     const painPointKeywords = [
@@ -327,34 +339,48 @@ Only include the JSON response, no other text.`;
     
     // Ensure platform diversity in each category (at least 1 post from each platform if available)
     const ensurePlatformDiversity = (categoryPosts, categoryName, allAvailablePosts) => {
-      const platforms = ['reddit', 'x', 'youtube'];
-      const currentPlatforms = new Set(categoryPosts.map(p => p.platform));
-      const missingPlatforms = platforms.filter(platform => !currentPlatforms.has(platform));
-      
-      if (missingPlatforms.length > 0) {
-        logger.info(`🔄 ${categoryName} missing platforms: ${missingPlatforms.join(', ')}, adding posts for diversity`);
+      try {
+        const platforms = ['reddit', 'x', 'youtube'];
+        const currentPlatforms = new Set(categoryPosts.map(p => p && p.platform).filter(Boolean));
+        const missingPlatforms = platforms.filter(platform => !currentPlatforms.has(platform));
         
-        missingPlatforms.forEach(platform => {
-          // Find best post from missing platform that's not already used
-          const usedIds = new Set(categoryPosts.map(p => p.id));
-          const availableFromPlatform = allAvailablePosts
-            .filter(p => p.platform === platform && !usedIds.has(p.id))
-            .sort((a, b) => (b.engagement || 0) - (a.engagement || 0));
+        if (missingPlatforms.length > 0) {
+          logger.info(`🔄 ${categoryName} missing platforms: ${missingPlatforms.join(', ')}, adding posts for diversity`);
           
-          if (availableFromPlatform.length > 0) {
-            categoryPosts.push(availableFromPlatform[0]);
-            logger.debug(`  Added ${platform} post to ${categoryName}: "${availableFromPlatform[0].content.substring(0, 40)}..."`);
-          }
-        });
+          missingPlatforms.forEach(platform => {
+            try {
+              // Find best post from missing platform that's not already used
+              const usedIds = new Set(categoryPosts.map(p => p && p.id).filter(Boolean));
+              const availableFromPlatform = allAvailablePosts
+                .filter(p => p && p.platform === platform && p.id && !usedIds.has(p.id))
+                .sort((a, b) => (b.engagement || 0) - (a.engagement || 0));
+              
+              if (availableFromPlatform.length > 0) {
+                categoryPosts.push(availableFromPlatform[0]);
+                logger.debug(`  Added ${platform} post to ${categoryName}: "${(availableFromPlatform[0].content || '').substring(0, 40)}..."`);
+              }
+            } catch (platformError) {
+              logger.error(`Error adding ${platform} to ${categoryName}:`, platformError);
+            }
+          });
+        }
+      } catch (error) {
+        logger.error(`Error in ensurePlatformDiversity for ${categoryName}:`, error);
       }
       
       return categoryPosts;
     };
 
     // Apply platform diversity to each category
-    painPoints = ensurePlatformDiversity(painPoints, 'pain points', scoredPosts.map(s => s.post));
-    trendingIdeas = ensurePlatformDiversity(trendingIdeas, 'trending ideas', scoredPosts.map(s => s.post));
-    contentIdeas = ensurePlatformDiversity(contentIdeas, 'content ideas', scoredPosts.map(s => s.post));
+    try {
+      const allPosts = scoredPosts.map(s => s && s.post).filter(Boolean);
+      painPoints = ensurePlatformDiversity(painPoints, 'pain points', allPosts);
+      trendingIdeas = ensurePlatformDiversity(trendingIdeas, 'trending ideas', allPosts);
+      contentIdeas = ensurePlatformDiversity(contentIdeas, 'content ideas', allPosts);
+    } catch (error) {
+      logger.error('Error applying platform diversity:', error);
+      // Continue without platform diversity if there's an error
+    }
 
     // Third pass: Fill empty categories with balanced distribution
     if (painPoints.length === 0 && totalPosts > 0) {
@@ -432,6 +458,16 @@ Only include the JSON response, no other text.`;
         excludedIrrelevantPosts: excludedIrrelevant
       }
     };
+    
+    } catch (error) {
+      logger.error('Error in simpleCategorization:', error);
+      return {
+        painPoints: [],
+        trendingIdeas: [],
+        contentIdeas: [],
+        relevanceAnalysis: { totalRelevantPosts: 0, relevanceScore: 0, excludedPromotedContent: 0, excludedIrrelevantPosts: 0 }
+      };
+    }
   }
 
   static getPlatformCounts(posts) {
