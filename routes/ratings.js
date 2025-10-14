@@ -4,15 +4,34 @@ const logger = require('../utils/logger');
 
 const router = express.Router();
 
-// Initialize Supabase client
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+// Initialize Supabase client (with fallbacks)
+let supabase = null;
+try {
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+    logger.info('✅ Supabase client initialized for ratings API');
+  } else {
+    logger.warn('⚠️ Supabase credentials not configured - ratings API disabled');
+  }
+} catch (error) {
+  logger.error('❌ Failed to initialize Supabase client:', error);
+  supabase = null;
+}
 
 // Submit relevance rating
 router.post('/submit', async (req, res) => {
   try {
+    // Check if Supabase is available
+    if (!supabase) {
+      return res.status(503).json({
+        success: false,
+        error: 'Rating system not available - database not configured'
+      });
+    }
+
     const { searchQuery, postId, platform, rating, userId } = req.body;
 
     // Validate input
@@ -73,6 +92,14 @@ router.post('/submit', async (req, res) => {
 // Get relevance analytics for a search query
 router.get('/analytics/:query', async (req, res) => {
   try {
+    // Check if Supabase is available
+    if (!supabase) {
+      return res.status(503).json({
+        success: false,
+        error: 'Analytics not available - database not configured'
+      });
+    }
+
     const { query } = req.params;
     const normalizedQuery = query.toLowerCase().trim();
 
@@ -123,6 +150,14 @@ router.get('/analytics/:query', async (req, res) => {
 // Get user's rating history
 router.get('/user/:userId', async (req, res) => {
   try {
+    // Check if Supabase is available
+    if (!supabase) {
+      return res.status(503).json({
+        success: false,
+        error: 'User ratings not available - database not configured'
+      });
+    }
+
     const { userId } = req.params;
     const { limit = 50, offset = 0 } = req.query;
 
@@ -158,6 +193,12 @@ router.get('/user/:userId', async (req, res) => {
 // Trigger AI learning analysis
 async function triggerAILearning(searchQuery, platform) {
   try {
+    // Skip if Supabase is not available
+    if (!supabase) {
+      logger.debug('Supabase not available - skipping AI learning trigger');
+      return;
+    }
+
     logger.info(`🤖 Triggering AI learning for: "${searchQuery}" on ${platform}`);
     
     // Get recent ratings for this query
