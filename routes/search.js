@@ -244,7 +244,7 @@ router.post('/', validateSearchRequest, async (req, res) => {
       });
     }
 
-    // Categorize posts using AI
+    // Categorize posts using AI with enhanced relevance filtering
     let categorizedResults = {
       painPoints: [],
       trendingIdeas: [],
@@ -253,13 +253,32 @@ router.post('/', validateSearchRequest, async (req, res) => {
 
     if (allPosts.length > 0) {
       try {
+        logger.info(`🤖 Starting AI-powered categorization for ${allPosts.length} posts`);
         categorizedResults = await AIService.categorizePosts(allPosts, query);
+        logger.info(`✅ AI categorization complete: ${categorizedResults.painPoints.length} pain points, ${categorizedResults.trendingIdeas.length} trending ideas, ${categorizedResults.contentIdeas.length} content ideas`);
       } catch (error) {
         logger.error('AI categorization failed:', error);
         // Fallback to simple categorization
         categorizedResults = AIService.simpleCategorization(allPosts);
       }
     }
+
+    // Apply tier-based result limiting
+    const userTier = req.body.userTier || 'free';
+    const tierLimits = {
+      free: { painPoints: 3, trendingIdeas: 3, contentIdeas: 3 },
+      standard: { painPoints: 10, trendingIdeas: 10, contentIdeas: 10 },
+      pro: { painPoints: 20, trendingIdeas: 20, contentIdeas: 20 }
+    };
+
+    const limits = tierLimits[userTier] || tierLimits.free;
+    
+    // Apply limits to each category
+    categorizedResults.painPoints = categorizedResults.painPoints.slice(0, limits.painPoints);
+    categorizedResults.trendingIdeas = categorizedResults.trendingIdeas.slice(0, limits.trendingIdeas);
+    categorizedResults.contentIdeas = categorizedResults.contentIdeas.slice(0, limits.contentIdeas);
+    
+    logger.info(`📊 Applied ${userTier} tier limits: ${limits.painPoints} pain points, ${limits.trendingIdeas} trending ideas, ${limits.contentIdeas} content ideas`);
 
     const duration = Date.now() - startTime;
     const totalPosts = allPosts.length;
