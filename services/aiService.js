@@ -2,11 +2,22 @@ const axios = require('axios');
 const logger = require('../utils/logger');
 const { createClient } = require('@supabase/supabase-js');
 
-// Initialize Supabase client for rating insights
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+// Initialize Supabase client for rating insights (with fallbacks)
+let supabase = null;
+try {
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    supabase = createClient(
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
+    logger.info('✅ Supabase client initialized for rating insights');
+  } else {
+    logger.warn('⚠️ Supabase credentials not configured - rating insights disabled');
+  }
+} catch (error) {
+  logger.error('❌ Failed to initialize Supabase client:', error);
+  supabase = null;
+}
 
 class AIService {
   static baseUrl = 'https://api.perplexity.ai';
@@ -540,6 +551,12 @@ Format as a JSON array of objects with "title", "description", and "platform" fi
   // Get rating insights for a query to improve AI relevance
   static async getRatingInsights(query) {
     try {
+      // Return null if Supabase is not configured
+      if (!supabase) {
+        logger.debug('Supabase not configured - skipping rating insights');
+        return null;
+      }
+
       const normalizedQuery = query.toLowerCase().trim();
       
       // Get analytics data for this query
