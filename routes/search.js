@@ -263,22 +263,22 @@ router.post('/', validateSearchRequest, async (req, res) => {
       }
     }
 
-    // Apply tier-based result limiting
+    // Apply tier-based result limiting per platform within each category
     const userTier = req.body.userTier || 'free';
     const tierLimits = {
-      free: { painPoints: 3, trendingIdeas: 3, contentIdeas: 3 },
-      standard: { painPoints: 10, trendingIdeas: 10, contentIdeas: 10 },
-      pro: { painPoints: 20, trendingIdeas: 20, contentIdeas: 20 }
+      free: { perPlatform: 3, totalPerCategory: 9 },      // 3 per platform × 3 platforms = 9 per category
+      standard: { perPlatform: 5, totalPerCategory: 15 }, // 5 per platform × 3 platforms = 15 per category  
+      pro: { perPlatform: 10, totalPerCategory: 30 }      // 10 per platform × 3 platforms = 30 per category
     };
 
     const limits = tierLimits[userTier] || tierLimits.free;
     
-    // Apply limits to each category
-    categorizedResults.painPoints = categorizedResults.painPoints.slice(0, limits.painPoints);
-    categorizedResults.trendingIdeas = categorizedResults.trendingIdeas.slice(0, limits.trendingIdeas);
-    categorizedResults.contentIdeas = categorizedResults.contentIdeas.slice(0, limits.contentIdeas);
+    // Apply per-platform limits to each category
+    categorizedResults.painPoints = applyPerPlatformLimits(categorizedResults.painPoints, limits.perPlatform);
+    categorizedResults.trendingIdeas = applyPerPlatformLimits(categorizedResults.trendingIdeas, limits.perPlatform);
+    categorizedResults.contentIdeas = applyPerPlatformLimits(categorizedResults.contentIdeas, limits.perPlatform);
     
-    logger.info(`📊 Applied ${userTier} tier limits: ${limits.painPoints} pain points, ${limits.trendingIdeas} trending ideas, ${limits.contentIdeas} content ideas`);
+    logger.info(`📊 Applied ${userTier} tier limits: ${limits.perPlatform} per platform (${limits.totalPerCategory} total per category)`);
 
     const duration = Date.now() - startTime;
     const totalPosts = allPosts.length;
@@ -357,5 +357,32 @@ router.get('/stats', async (req, res) => {
     });
   }
 });
+
+// Helper function to apply per-platform limits to posts
+function applyPerPlatformLimits(posts, limitPerPlatform) {
+  const platforms = ['reddit', 'x', 'youtube'];
+  const filtered = [];
+  const usedPosts = new Set();
+
+  // First pass: Get N posts from each platform if available
+  platforms.forEach(platform => {
+    const platformPosts = posts.filter(post => post.platform === platform && !usedPosts.has(post.id));
+    const toTake = Math.min(platformPosts.length, limitPerPlatform);
+    
+    const selectedPosts = platformPosts.slice(0, toTake);
+    selectedPosts.forEach(post => usedPosts.add(post.id));
+    filtered.push(...selectedPosts);
+  });
+
+  // Second pass: Fill remaining slots with any available posts (cross-platform)
+  const remainingSlots = (limitPerPlatform * 3) - filtered.length;
+  if (remainingSlots > 0) {
+    const remainingPosts = posts.filter(post => !usedPosts.has(post.id));
+    const toAdd = Math.min(remainingPosts.length, remainingSlots);
+    filtered.push(...remainingPosts.slice(0, toAdd));
+  }
+
+  return filtered;
+}
 
 module.exports = router;
