@@ -23,14 +23,153 @@ class AIService {
         return this.enhancedSentimentAnalysis(posts, query);
       }
 
-      // Use AI for sentiment analysis
-      logger.info(`🤖 Using AI sentiment analysis for ${posts.length} posts with query: "${query}"`);
-      return await this.aiSentimentAnalysis(posts, query);
+      // Step 1: AI-powered relevance filtering
+      logger.info(`🤖 AI analyzing ${posts.length} posts for relevance to query: "${query}"`);
+      const relevantPosts = await this.filterRelevantPosts(posts, query);
+      
+      if (relevantPosts.length === 0) {
+        logger.warn('No relevant posts found after AI filtering');
+        return {
+          painPoints: [],
+          trendingIdeas: [],
+          contentIdeas: [],
+          relevanceAnalysis: { 
+            totalRelevantPosts: 0, 
+            relevanceScore: 0, 
+            excludedPromotedContent: 0, 
+            excludedIrrelevantPosts: posts.length 
+          }
+        };
+      }
+
+      // Step 2: AI-powered sentiment categorization
+      logger.info(`🤖 Using AI sentiment analysis for ${relevantPosts.length} relevant posts with query: "${query}"`);
+      const result = await this.aiSentimentAnalysis(relevantPosts, query);
+      
+      // Update relevance analysis
+      result.relevanceAnalysis = {
+        totalRelevantPosts: relevantPosts.length,
+        relevanceScore: relevantPosts.length / posts.length,
+        excludedPromotedContent: 0,
+        excludedIrrelevantPosts: posts.length - relevantPosts.length
+      };
+
+      return result;
 
     } catch (error) {
-      logger.error('AI sentiment analysis error:', error);
+      logger.error('AI analysis error:', error);
       logger.info('Falling back to enhanced sentiment analysis');
       return this.enhancedSentimentAnalysis(posts, query);
+    }
+  }
+
+  static async filterRelevantPosts(posts, query) {
+    try {
+      const apiKey = process.env.PERPLEXITY_API_KEY;
+      if (!apiKey) {
+        logger.warn('No Perplexity API key, skipping AI relevance filtering');
+        return posts; // Return all posts if no API key
+      }
+
+      logger.info(`🔍 AI filtering ${posts.length} posts for relevance to: "${query}"`);
+      
+      // Process posts in batches to avoid token limits
+      const batchSize = 50;
+      const relevantPosts = [];
+      
+      for (let i = 0; i < posts.length; i += batchSize) {
+        const batch = posts.slice(i, i + batchSize);
+        const batchRelevant = await this.filterBatchRelevance(batch, query, i);
+        relevantPosts.push(...batchRelevant);
+        
+        // Add delay between batches to respect rate limits
+        if (i + batchSize < posts.length) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      
+      logger.info(`✅ AI relevance filtering complete: ${relevantPosts.length}/${posts.length} posts are relevant`);
+      return relevantPosts;
+      
+    } catch (error) {
+      logger.error('AI relevance filtering error:', error);
+      logger.info('Falling back to returning all posts');
+      return posts; // Return all posts on error
+    }
+  }
+
+  static async filterBatchRelevance(posts, query, offset) {
+    try {
+      const postsText = posts.map((post, index) => 
+        `${offset + index + 1}. [${post.platform.toUpperCase()}] ${post.source} (${post.engagement} engagement):\n   "${post.content.substring(0, 300)}${post.content.length > 300 ? '...' : ''}"`
+      ).join('\n\n');
+
+      const prompt = `You are an expert content relevance analyzer. Your task is to determine which posts are ACTUALLY RELEVANT to the user's search query.
+
+SEARCH QUERY: "${query}"
+
+ANALYSIS CRITERIA:
+1. The post must be directly related to the search topic or contain meaningful discussion about it
+2. Posts that only mention keywords without context are NOT relevant
+3. Posts about completely different topics are NOT relevant
+4. Consider semantic meaning, not just keyword presence
+5. Posts asking questions about the topic ARE relevant
+6. Posts sharing experiences related to the topic ARE relevant
+7. Posts offering solutions or advice about the topic ARE relevant
+
+EXAMPLES:
+- Query: "workflow automation for real estate agents"
+- RELEVANT: Posts about real estate automation tools, CRM systems for agents, workflow challenges in real estate
+- NOT RELEVANT: Posts about personal finance, career changes, or general business topics that happen to mention "workflow"
+
+Posts to analyze:
+${postsText}
+
+Respond with ONLY a JSON object containing the indices (1-based) of relevant posts:
+{"relevant": [1, 3, 7, 12, ...]}
+
+If no posts are relevant, respond with: {"relevant": []}`;
+
+      const response = await axios.post(`${this.baseUrl}/chat/completions`, {
+        model: 'llama-3.1-sonar-small-128k-online',
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        max_tokens: 500,
+        temperature: 0.1 // Low temperature for consistent relevance filtering
+      }, {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: this.timeout
+      });
+
+      const aiResponse = response.data.choices[0]?.message?.content;
+      if (!aiResponse) {
+        throw new Error('No response from AI relevance filter');
+      }
+
+      // Parse AI response
+      const result = JSON.parse(aiResponse);
+      const relevantIndices = result.relevant || [];
+      
+      // Convert 1-based indices to 0-based and filter posts
+      const relevantPosts = relevantIndices
+        .filter(index => index >= 1 && index <= posts.length)
+        .map(index => posts[index - 1])
+        .filter(Boolean);
+
+      logger.info(`📊 Batch ${Math.floor(offset/batchSize) + 1}: ${relevantPosts.length}/${posts.length} posts relevant`);
+      return relevantPosts;
+
+    } catch (error) {
+      logger.error('Batch relevance filtering error:', error);
+      // Return all posts in batch if filtering fails
+      return posts;
     }
   }
 
