@@ -190,23 +190,26 @@ If no posts are relevant, respond with: {"relevant": []}`;
         return `${index + 1}. [${post.platform.toUpperCase()}] Posted ${post.timestamp} | Engagement: ${engagement} ${engagementIndicator}\n   ${post.content.substring(0, 200)}...`;
       }).join('\n\n');
 
-      const prompt = `You are an expert social media sentiment analyst. Analyze these posts related to "${query}" and categorize them by SENTIMENT and INTENT, not by platform.
+      const prompt = `You are an expert social media sentiment analyst specializing in "${query}". Analyze these posts and categorize them by SENTIMENT and INTENT, not by platform.
+
+SEARCH CONTEXT: "${query}"
+Focus on understanding what people are saying about this specific topic across all platforms.
 
 IMPORTANT: Mix posts from ALL platforms (Reddit, X/Twitter, YouTube) in each category. Do NOT separate by platform.
 
 CATEGORIES BY SENTIMENT/INTENT:
-1. PAIN POINTS: Posts expressing problems, frustrations, challenges, complaints, or negative experiences
-2. TRENDING IDEAS: Posts about popular/viral discussions, news, emerging trends, or high-engagement content
-3. CONTENT IDEAS: Posts offering solutions, tips, tutorials, educational content, or asking questions
+1. PAIN POINTS: Posts expressing problems, frustrations, challenges, complaints, or negative experiences specifically related to "${query}"
+2. TRENDING IDEAS: Posts about popular/viral discussions, news, emerging trends, or high-engagement content related to "${query}"
+3. CONTENT IDEAS: Posts offering solutions, tips, tutorials, educational content, or asking questions about "${query}"
 
-RULES:
-- Include posts that mention "${query}" or are related to it
+ANALYSIS RULES:
+- Focus on posts that are directly relevant to "${query}" context
 - DISTRIBUTE posts across ALL THREE categories (don't put everything in one category)
 - MIX platforms in each category - a category can have Reddit + X + YouTube posts together
 - Prioritize high engagement posts for trending ideas
-- Include posts asking questions as content ideas
-- Include complaints and frustrations as pain points
-- Be inclusive - include posts even if they only briefly mention the topic
+- Include posts asking questions about the topic as content ideas
+- Include complaints and frustrations about the topic as pain points
+- Consider the broader context of "${query}" when categorizing
 
 Posts to analyze (${maxPosts} total):
 ${postsText}
