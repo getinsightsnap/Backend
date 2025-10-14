@@ -1,5 +1,12 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
+const { createClient } = require('@supabase/supabase-js');
+
+// Initialize Supabase client for rating insights
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 class AIService {
   static baseUrl = 'https://api.perplexity.ai';
@@ -100,9 +107,17 @@ class AIService {
 
   static async filterBatchRelevance(posts, query, offset) {
     try {
+      // Get historical rating data for this query to improve relevance
+      const ratingInsights = await this.getRatingInsights(query);
+      
       const postsText = posts.map((post, index) => 
         `${offset + index + 1}. [${post.platform.toUpperCase()}] ${post.source} (${post.engagement} engagement):\n   "${post.content.substring(0, 300)}${post.content.length > 300 ? '...' : ''}"`
       ).join('\n\n');
+
+      let ratingContext = '';
+      if (ratingInsights && ratingInsights.length > 0) {
+        ratingContext = `\n\nLEARNING FROM USER FEEDBACK:\nPrevious users rated posts about "${query}" with these patterns:\n${ratingInsights.map(insight => `- ${insight.platform}: Average rating ${insight.avg_rating}/5 (${insight.total_ratings} ratings) - ${insight.improvement_suggestions || 'No specific suggestions'}`).join('\n')}\n\nUse this feedback to better understand what users consider relevant for "${query}".`;
+      }
 
       const prompt = `You are an expert content relevance analyzer. Your task is to determine which posts are ACTUALLY RELEVANT to the user's search query.
 
@@ -115,7 +130,7 @@ ANALYSIS CRITERIA:
 4. Consider semantic meaning, not just keyword presence
 5. Posts asking questions about the topic ARE relevant
 6. Posts sharing experiences related to the topic ARE relevant
-7. Posts offering solutions or advice about the topic ARE relevant
+7. Posts offering solutions or advice about the topic ARE relevant${ratingContext}
 
 EXAMPLES:
 - Query: "workflow automation for real estate agents"
@@ -520,6 +535,48 @@ Format as a JSON array of objects with "title", "description", and "platform" fi
     ];
 
     return ideas;
+  }
+
+  // Get rating insights for a query to improve AI relevance
+  static async getRatingInsights(query) {
+    try {
+      const normalizedQuery = query.toLowerCase().trim();
+      
+      // Get analytics data for this query
+      const { data: analytics, error } = await supabase
+        .from('relevance_analytics')
+        .select('platform, avg_rating, total_ratings')
+        .eq('search_query', normalizedQuery);
+
+      if (error) {
+        logger.warn('Failed to fetch rating insights:', error);
+        return null;
+      }
+
+      // Get learning patterns for this query
+      const { data: patterns, error: patternsError } = await supabase
+        .from('ai_learning_patterns')
+        .select('platform, avg_relevance_score, improvement_suggestions')
+        .eq('search_query', normalizedQuery);
+
+      if (patternsError) {
+        logger.warn('Failed to fetch learning patterns:', patternsError);
+      }
+
+      // Combine analytics and patterns
+      const insights = analytics?.map(analytic => ({
+        platform: analytic.platform,
+        avg_rating: parseFloat(analytic.avg_rating),
+        total_ratings: analytic.total_ratings,
+        improvement_suggestions: patterns?.find(p => p.platform === analytic.platform)?.improvement_suggestions || null
+      })) || [];
+
+      return insights.length > 0 ? insights : null;
+
+    } catch (error) {
+      logger.error('Error getting rating insights:', error);
+      return null;
+    }
   }
 }
 
