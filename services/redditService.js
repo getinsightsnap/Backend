@@ -123,7 +123,7 @@ class RedditService {
       const uniquePosts = this.removeDuplicates(allPosts);
       const sortedPosts = uniquePosts
         .sort((a, b) => b.engagement - a.engagement)
-        .slice(0, 50);
+        .slice(0, 100); // Increased limit since AI will filter for relevance
 
       const duration = Date.now() - startTime;
       logger.info(`✅ Reddit search completed: ${sortedPosts.length} posts in ${duration}ms`);
@@ -196,18 +196,21 @@ class RedditService {
   }
 
   static isRelevant(post, query) {
+    // Relaxed filtering since AI will handle relevance analysis
     const content = (post.title + ' ' + (post.selftext || '')).toLowerCase();
     const queryWords = query.toLowerCase().split(' ').filter(word => word.length > 2);
     
-    // Check if any query words appear in the content
+    // Check if any query words appear in the content (more permissive)
     const hasQueryWords = queryWords.some(word => content.includes(word));
     const hasFullQuery = content.includes(query.toLowerCase());
     
-    // Additional relevance checks
-    const hasGoodEngagement = (post.score + post.num_comments) > 5;
+    // Additional quality checks
+    const hasGoodEngagement = (post.score + post.num_comments) > 2; // Lowered threshold
     const isNotDeleted = !post.removed_by_category;
+    const isNotSpam = !post.over_18 || false; // Filter out NSFW content
     
-    return (hasQueryWords || hasFullQuery) && hasGoodEngagement && isNotDeleted;
+    // More permissive - let AI decide relevance
+    return (hasQueryWords || hasFullQuery || queryWords.length <= 2) && hasGoodEngagement && isNotDeleted && !isNotSpam;
   }
 
   static formatPost(post) {
