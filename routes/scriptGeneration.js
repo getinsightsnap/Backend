@@ -107,12 +107,17 @@ ${platformGuidance}
 TASK: Create a complete, ready-to-use ${request.contentType} script that a content creator can immediately use.
 
 CRITICAL REQUIREMENTS:
-1. Write the ACTUAL script content, not instructions
-2. Make it engaging and ${request.tone}
-3. Address the specific insights from the social media posts
-4. Include a compelling call-to-action
-5. Use relevant hashtags if appropriate
-6. Ensure the content is actionable and valuable
+1. Write ACTUAL CONTENT with SPECIFIC insights, solutions, and advice - NOT generic instructions like "identify the challenge" or "take action"
+2. Extract and address the EXACT problems, trends, or questions from the social media posts above
+3. Provide CONCRETE, ACTIONABLE steps with real examples (e.g., "Use zero-based budgeting" not "manage your budget better")
+4. Make it engaging, valuable, and ${request.tone}
+5. DO NOT use vague phrases like "let me break this down", "start by identifying", "take action", "many people struggle"
+6. Include specific numbers, strategies, tools, or frameworks when relevant
+7. Write as if you're an expert giving a masterclass, not a teacher explaining how to teach
+
+EXAMPLE OF BAD vs GOOD CONTENT:
+❌ BAD: "Today we'll explore spending control. First, understand the challenge. Then identify your problems. Finally, take action."
+✅ GOOD: "Your agency grew from 3 to 12 people and spending is out of control. Here's the fix: 1) Implement the 'Rule of 40' - keep employee costs under 40% of revenue. Right now you're at 65%. 2) Switch from monthly to weekly budget reviews. 3) Use Finmark or Runway for real-time cash tracking. This saved my agency $8K/month."
 
 RESPOND WITH VALID JSON ONLY:
 {
@@ -130,28 +135,40 @@ RESPOND WITH VALID JSON ONLY:
   static getCategoryInstructions(category) {
     switch (category) {
       case 'painPoints':
-        return `PAIN POINT ANALYSIS:
-- Identify the core problems or frustrations mentioned in the posts
-- Focus on providing practical solutions and actionable advice
-- Address the emotional aspects of the pain point
-- Create content that offers genuine help and relief
-- Use empathy and understanding in your approach`;
+        return `PAIN POINT ANALYSIS - CREATE SOLUTION-FOCUSED CONTENT:
+YOU MUST:
+- Identify the SPECIFIC problem from the posts (e.g., "spending spiraling when scaling from 3 to 12 employees")
+- Provide 3-5 CONCRETE solutions with exact steps (e.g., "Implement weekly budget reviews every Monday at 9am")
+- Give real examples, frameworks, or tools (e.g., "Use Profit First method: allocate 5% to profit account first")
+- Show empathy but focus on SOLUTIONS, not just acknowledging the problem
+- Include immediate actions they can take TODAY
+
+DO NOT write generic advice like "manage your finances better" or "make a plan"
+DO write specific advice like "Cut contractor costs by 30% by hiring one full-time developer instead of 3 freelancers"`;
       
       case 'trendingIdeas':
-        return `TRENDING TOPIC ANALYSIS:
-- Capitalize on the current momentum and interest
-- Provide fresh insights or angles on the trending topic
-- Include current data, statistics, or recent developments
-- Make it shareable and engaging for social media
-- Position the content as timely and relevant`;
+        return `TRENDING TOPIC ANALYSIS - CREATE MOMENTUM-DRIVEN CONTENT:
+YOU MUST:
+- State the SPECIFIC trend from the posts (e.g., "AI agents are replacing customer service teams")
+- Provide a UNIQUE angle or insight others aren't discussing
+- Include recent stats, numbers, or developments (e.g., "3 companies saved $50K in 2 months")
+- Give 3-5 ways to capitalize on this trend NOW
+- Make bold, shareable statements backed by evidence
+
+DO NOT write generic trend commentary like "this is getting popular"
+DO write specific insights like "Companies using Claude AI for support are seeing 67% faster response times"`;
       
       case 'contentIdeas':
-        return `CONTENT OPPORTUNITY ANALYSIS:
-- Focus on educational and informational value
-- Create content that teaches or explains concepts
-- Address questions or knowledge gaps
-- Make it comprehensive and valuable
-- Encourage learning and skill development`;
+        return `CONTENT OPPORTUNITY ANALYSIS - CREATE EDUCATIONAL CONTENT:
+YOU MUST:
+- Answer the SPECIFIC question or knowledge gap from the posts
+- Break down concepts into simple, digestible explanations with examples
+- Provide a step-by-step process or framework (numbered or bulleted)
+- Include real-world examples or case studies
+- Give them a complete understanding they can apply immediately
+
+DO NOT write vague explanations like "you need to understand the basics first"
+DO write clear teaching like "SEO has 3 parts: 1) Keywords in titles (example: 'best yoga mat for beginners'), 2) Fast page speed (under 3 seconds), 3) Backlinks from authority sites"`;
       
       default:
         return '';
@@ -213,24 +230,27 @@ RESPOND WITH VALID JSON ONLY:
   }
 
   static getSystemPrompt(contentType, tone) {
-    return `You are an expert ${contentType} content creator and scriptwriter. You specialize in creating engaging, well-structured content based on social media insights and trends. 
+    return `You are an expert ${contentType} content creator and scriptwriter with 10+ years of experience. You create SPECIFIC, ACTIONABLE content, NOT generic instructions.
 
-Your expertise includes:
-- Analyzing social media sentiment and trends
-- Creating content that resonates with target audiences
-- Writing compelling scripts that drive engagement
-- Adapting content for different platforms and formats
-- Using ${tone} tone effectively
+CRITICAL RULES:
+- Extract EXACT insights from the social media posts provided
+- Provide CONCRETE solutions, strategies, and steps (with numbers, tools, frameworks)
+- Write ACTUAL content that educates/solves/informs, NOT meta-instructions about how to think
+- Use ${tone} tone effectively
+- Be specific and detailed, avoid vague statements
 
-Always respond with valid JSON only. Focus on creating actionable, valuable content that content creators can immediately use.`;
+BAD EXAMPLE: "Start by identifying your core challenge and then take action"
+GOOD EXAMPLE: "Your core challenge is cash flow when scaling. Here's what to do: 1) Implement weekly budget reviews every Monday, 2) Use the Profit First method - allocate 5% to profit first, 3) Cut contractor costs by hiring one full-time dev instead of 3 freelancers"
+
+Always respond with valid JSON only. Your content must be immediately usable without any additional work.`;
   }
 
   static getMaxTokens(length, contentType) {
     const baseTokens = {
-      video: { short: 800, medium: 1200, long: 1800 },
-      blog: { short: 600, medium: 1000, long: 1500 },
-      social: { short: 400, medium: 600, long: 800 },
-      email: { short: 300, medium: 500, long: 700 }
+      video: { short: 1000, medium: 1500, long: 2200 },
+      blog: { short: 800, medium: 1300, long: 2000 },
+      social: { short: 500, medium: 800, long: 1200 },
+      email: { short: 400, medium: 700, long: 1000 }
     };
     
     return baseTokens[contentType][length];
@@ -238,10 +258,10 @@ Always respond with valid JSON only. Focus on creating actionable, valuable cont
 
   static getTemperature(tone) {
     const temperatures = {
-      professional: 0.3,
-      casual: 0.6,
-      educational: 0.4,
-      entertaining: 0.7
+      professional: 0.4,  // Slightly higher for more natural flow
+      casual: 0.7,        // Higher for conversational, engaging tone
+      educational: 0.5,   // Balanced for clear but engaging teaching
+      entertaining: 0.8   // High for creative, fun content
     };
     
     return temperatures[tone];
