@@ -157,7 +157,7 @@ Respond with ONLY a JSON object containing the indices (1-based) of relevant pos
 If no posts are relevant, respond with: {"relevant": []}`;
 
       const response = await axios.post(`${this.baseUrl}/chat/completions`, {
-        model: 'llama-3.1-sonar-small-128k-online',
+        model: 'llama-3.1-sonar-large-128k-chat',
         messages: [
           {
             role: 'user',
@@ -250,7 +250,7 @@ Respond with ONLY a JSON object in this exact format:
 Example: {"painPoints": [1, 5, 8], "trendingIdeas": [2, 3, 7], "contentIdeas": [4, 6, 9]}`;
 
       const response = await axios.post(`${this.baseUrl}/chat/completions`, {
-        model: 'llama-3.1-sonar-small-128k-online',
+        model: 'llama-3.1-sonar-large-128k-chat',
         messages: [
           {
             role: 'user',
@@ -495,7 +495,7 @@ Generate 5 specific, actionable content ideas that would resonate with this audi
 Format as a JSON array of objects with "title", "description", and "platform" fields.`;
 
       const response = await axios.post(`${this.baseUrl}/chat/completions`, {
-        model: 'llama-3.1-sonar-small-128k-online',
+        model: 'llama-3.1-sonar-large-128k-chat',
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 800,
         temperature: 0.7
