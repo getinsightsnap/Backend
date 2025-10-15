@@ -25,7 +25,7 @@ class ScriptGenerationService {
       const prompt = this.createIntelligentPrompt(request, postsContext);
 
       const response = await axios.post(`${this.baseUrl}/chat/completions`, {
-        model: 'llama-3.1-sonar-small-128k-online',
+        model: 'llama-3.1-sonar-large-128k-chat',
         messages: [
           {
             role: 'system',
