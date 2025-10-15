@@ -34,72 +34,69 @@ class AIService {
 
       logger.info(`🤖 Generating AI query expansion for: "${query}"`);
 
-      const prompt = `You are an expert social media researcher. Your task is to understand the keyword "${query}" and generate 6-8 specific, relevant concepts that people actually discuss on social platforms.
+      const prompt = `Generate 6 specific focus areas for social media research on "${query}". 
 
-STEP 1: UNDERSTAND THE KEYWORD
-First, think about what "${query}" really means and what aspects people care about most.
+Each focus area should be relevant to what people actually discuss about "${query}" on social platforms.
 
-STEP 2: GENERATE RELEVANT CONCEPTS
-Based on your understanding, generate concepts that reveal:
-- What people actually talk about regarding this topic
-- Real experiences, stories, and emotions
-- Problems, challenges, and pain points
-- Success stories and wins
-- Questions and advice-seeking
-- Tools, products, or solutions mentioned
-- Different perspectives or approaches
-
-IMPORTANT RULES:
-1. Each concept must be SPECIFIC to "${query}" - not generic business categories
-2. Think about what real people would post about on Reddit, Twitter, YouTube
-3. Consider emotional, personal, and practical aspects
-4. Avoid corporate jargon or generic categories like "best practices"
-5. Focus on concepts that generate authentic social media discussions
-
-For each concept, provide:
-- A specific, relevant title (2-4 words)
-- A description of what insights this would reveal
-- Search terms that would find real social media posts about this aspect
-
-IMPORTANT: Respond with ONLY a valid JSON array. No explanations, no markdown, no extra text.
-
-Format as JSON array:
+Return ONLY a JSON array with this exact format:
 [
   {
-    "title": "Specific Concept Title",
-    "description": "What real insights this would reveal from social media discussions",
-    "expandedQuery": "specific search terms that find authentic posts",
+    "title": "Focus Area Name",
+    "description": "What this reveals about the topic",
+    "expandedQuery": "search terms for this focus area",
     "category": "experiences|problems|questions|success|tools|trends|perspectives"
   }
 ]
 
-EXAMPLES of good vs bad concepts:
-- BAD: "Best Practices" (too generic)
-- GOOD: "Proposal Failures" (specific, emotional, generates real stories)
-- BAD: "Tools & Resources" (generic business category)  
-- GOOD: "Ring Shopping Stories" (specific, personal, relatable)
+Make each focus area specific to "${query}". Avoid generic categories.`;
 
-Generate concepts that would make people think "Yes, I want to see what others say about THIS specific aspect!"
-
-RESPOND WITH ONLY THE JSON ARRAY:`;
-
-      const response = await axios.post(`${this.baseUrl}/chat/completions`, {
-        model: 'llama-3.1-sonar-large-128k-chat',
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        max_tokens: 800,
-        temperature: 0.3
-      }, {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: this.timeout
-      });
+      // Try with the primary model first
+      let response;
+      try {
+        response = await axios.post(`${this.baseUrl}/chat/completions`, {
+          model: 'llama-3.1-sonar-large-128k-chat',
+          messages: [
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          max_tokens: 800,
+          temperature: 0.3
+        }, {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          },
+          timeout: this.timeout
+        });
+      } catch (primaryError) {
+        logger.warn('Primary AI model failed, trying fallback model');
+        
+        // Try with a different model as fallback
+        try {
+          response = await axios.post(`${this.baseUrl}/chat/completions`, {
+            model: 'llama-3.1-sonar-small-128k-chat',
+            messages: [
+              {
+                role: 'user',
+                content: prompt
+              }
+            ],
+            max_tokens: 600,
+            temperature: 0.3
+          }, {
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'Content-Type': 'application/json'
+            },
+            timeout: this.timeout
+          });
+        } catch (fallbackError) {
+          logger.error('Both AI models failed, using hardcoded fallback');
+          return this.getFallbackQueryExpansion(query);
+        }
+      }
 
       const aiResponse = response.data.choices[0]?.message?.content;
       if (!aiResponse) {
@@ -109,21 +106,42 @@ RESPOND WITH ONLY THE JSON ARRAY:`;
 
       logger.info(`📝 AI Response: ${aiResponse.substring(0, 200)}...`);
 
-      // Parse JSON response - look for JSON array in the response
-      const jsonMatch = aiResponse.match(/\[[\s\S]*\]/);
+      // Clean and parse JSON response
+      let cleanResponse = aiResponse.trim();
+      
+      // Remove any markdown code blocks
+      cleanResponse = cleanResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+      
+      // Try to find JSON array
+      let jsonMatch = cleanResponse.match(/\[[\s\S]*\]/);
       if (!jsonMatch) {
-        logger.warn('❌ No JSON array found in AI response, falling back to patterns');
-        logger.info(`🔍 Full AI response: ${aiResponse}`);
-        return this.getFallbackQueryExpansion(query);
+        // Try parsing the entire response as JSON
+        jsonMatch = [cleanResponse];
       }
 
       let subtopics;
       try {
         subtopics = JSON.parse(jsonMatch[0]);
-        logger.info(`✅ Successfully parsed ${subtopics.length} AI-generated focus areas`);
+        
+        // Validate that it's an array with proper structure
+        if (!Array.isArray(subtopics) || subtopics.length === 0) {
+          throw new Error('Invalid array format');
+        }
+        
+        // Validate each subtopic has required fields
+        const validSubtopics = subtopics.filter(subtopic => 
+          subtopic.title && subtopic.description && subtopic.expandedQuery
+        );
+        
+        if (validSubtopics.length === 0) {
+          throw new Error('No valid subtopics found');
+        }
+        
+        logger.info(`✅ Successfully parsed ${validSubtopics.length} AI-generated focus areas`);
+        subtopics = validSubtopics;
+        
       } catch (parseError) {
-        logger.error('❌ Failed to parse AI JSON response:', parseError.message);
-        logger.info(`🔍 JSON content: ${jsonMatch[0]}`);
+        logger.warn(`❌ AI response parsing failed, using fallback: ${parseError.message}`);
         return this.getFallbackQueryExpansion(query);
       }
       
@@ -148,10 +166,11 @@ RESPOND WITH ONLY THE JSON ARRAY:`;
   static getFallbackQueryExpansion(query) {
     const lowerQuery = query.toLowerCase();
     
-    // Generate social media research focused subtopics
+    // Generate context-aware subtopics based on query analysis
     const subtopics = [];
     
-    if (lowerQuery.includes('sales') || lowerQuery.includes('marketing')) {
+    // Business/Marketing topics
+    if (lowerQuery.includes('sales') || lowerQuery.includes('marketing') || lowerQuery.includes('business')) {
       subtopics.push(
         { title: "Sales Struggles", description: "Real sales challenges and frustrations", expandedQuery: `${query} struggling problems difficult`, category: "problems" },
         { title: "Sales Success", description: "Success stories and wins", expandedQuery: `${query} success story win achieved`, category: "success" },
@@ -186,14 +205,39 @@ RESPOND WITH ONLY THE JSON ARRAY:`;
         { title: "Government Tools", description: "Government websites, apps, and digital services", expandedQuery: `${query} website app digital portal online`, category: "tools" }
       );
     } else {
-      // Generic social media research subtopics
-      subtopics.push(
+      // Generate dynamic, context-aware subtopics based on query
+      const baseTopics = [
         { title: "Real Experiences", description: "Personal experiences and stories", expandedQuery: `${query} experience story happened personal`, category: "experiences" },
         { title: "Common Problems", description: "Problems and frustrations people have", expandedQuery: `${query} problems issues struggling difficult`, category: "problems" },
         { title: "Success Stories", description: "What worked and success stories", expandedQuery: `${query} success worked amazing great`, category: "success" },
         { title: "Questions Asked", description: "Questions people ask about this", expandedQuery: `${query} help advice how to`, category: "questions" },
         { title: "Tools & Products", description: "Tools and products people mention", expandedQuery: `${query} tools products software app`, category: "tools" }
-      );
+      ];
+      
+      // Customize titles based on query context
+      if (lowerQuery.includes('health') || lowerQuery.includes('medical') || lowerQuery.includes('doctor')) {
+        baseTopics[0].title = "Health Experiences";
+        baseTopics[1].title = "Health Problems";
+        baseTopics[2].title = "Health Success";
+      } else if (lowerQuery.includes('tech') || lowerQuery.includes('software') || lowerQuery.includes('app')) {
+        baseTopics[0].title = "Tech Experiences";
+        baseTopics[1].title = "Tech Problems";
+        baseTopics[2].title = "Tech Success";
+      } else if (lowerQuery.includes('education') || lowerQuery.includes('school') || lowerQuery.includes('learn')) {
+        baseTopics[0].title = "Learning Experiences";
+        baseTopics[1].title = "Learning Problems";
+        baseTopics[2].title = "Learning Success";
+      } else if (lowerQuery.includes('food') || lowerQuery.includes('recipe') || lowerQuery.includes('cook')) {
+        baseTopics[0].title = "Food Experiences";
+        baseTopics[1].title = "Cooking Problems";
+        baseTopics[2].title = "Cooking Success";
+      } else if (lowerQuery.includes('travel') || lowerQuery.includes('vacation') || lowerQuery.includes('trip')) {
+        baseTopics[0].title = "Travel Experiences";
+        baseTopics[1].title = "Travel Problems";
+        baseTopics[2].title = "Travel Success";
+      }
+      
+      subtopics.push(...baseTopics);
     }
 
     // Add custom option
