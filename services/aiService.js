@@ -31,36 +31,50 @@ class AIService {
         return this.getFallbackQueryExpansion(query);
       }
 
-      const prompt = `Analyze this search query and generate 6-8 specific, relevant subtopics that users might be interested in. Each subtopic should be more specific and actionable than the original query.
+      const prompt = `You are an expert social media researcher. Your task is to understand the keyword "${query}" and generate 6-8 specific, relevant concepts that people actually discuss on social platforms.
 
-ORIGINAL QUERY: "${query}"
+STEP 1: UNDERSTAND THE KEYWORD
+First, think about what "${query}" really means and what aspects people care about most.
 
-Generate subtopics that cover:
-1. Professional/business aspects
-2. Technical/practical aspects  
-3. Problem-solving aspects
-4. Trending/current aspects
-5. Educational/learning aspects
-6. Tools/platforms aspects
-7. Industry-specific aspects
-8. Custom user input option
+STEP 2: GENERATE RELEVANT CONCEPTS
+Based on your understanding, generate concepts that reveal:
+- What people actually talk about regarding this topic
+- Real experiences, stories, and emotions
+- Problems, challenges, and pain points
+- Success stories and wins
+- Questions and advice-seeking
+- Tools, products, or solutions mentioned
+- Different perspectives or approaches
 
-For each subtopic, provide:
-- A clear, specific title (2-4 words)
-- A brief description (1 sentence)
-- The expanded search terms that would be used
+IMPORTANT RULES:
+1. Each concept must be SPECIFIC to "${query}" - not generic business categories
+2. Think about what real people would post about on Reddit, Twitter, YouTube
+3. Consider emotional, personal, and practical aspects
+4. Avoid corporate jargon or generic categories like "best practices"
+5. Focus on concepts that generate authentic social media discussions
+
+For each concept, provide:
+- A specific, relevant title (2-4 words)
+- A description of what insights this would reveal
+- Search terms that would find real social media posts about this aspect
 
 Format as JSON array:
 [
   {
-    "title": "Subtopic Title",
-    "description": "Brief description of this subtopic",
-    "expandedQuery": "specific search terms for this subtopic",
-    "category": "business|technical|problems|trending|education|tools|industry"
+    "title": "Specific Concept Title",
+    "description": "What real insights this would reveal from social media discussions",
+    "expandedQuery": "specific search terms that find authentic posts",
+    "category": "experiences|problems|questions|success|tools|trends|perspectives"
   }
 ]
 
-Focus on creating actionable, specific subtopics that would lead to highly relevant social media discussions.`;
+EXAMPLES of good vs bad concepts:
+- BAD: "Best Practices" (too generic)
+- GOOD: "Proposal Failures" (specific, emotional, generates real stories)
+- BAD: "Tools & Resources" (generic business category)  
+- GOOD: "Ring Shopping Stories" (specific, personal, relatable)
+
+Generate concepts that would make people think "Yes, I want to see what others say about THIS specific aspect!"`;
 
       const response = await axios.post(`${this.baseUrl}/chat/completions`, {
         model: 'llama-3.1-sonar-large-128k-chat',
@@ -113,33 +127,42 @@ Focus on creating actionable, specific subtopics that would lead to highly relev
   static getFallbackQueryExpansion(query) {
     const lowerQuery = query.toLowerCase();
     
-    // Generate basic subtopics based on common patterns
+    // Generate social media research focused subtopics
     const subtopics = [];
     
     if (lowerQuery.includes('sales') || lowerQuery.includes('marketing')) {
       subtopics.push(
-        { title: "Sales Strategies", description: "Sales techniques and strategies", expandedQuery: `${query} strategies techniques`, category: "business" },
-        { title: "Sales Tools", description: "Sales software and CRM tools", expandedQuery: `${query} tools software CRM`, category: "tools" },
-        { title: "Sales Challenges", description: "Common sales problems and pain points", expandedQuery: `${query} problems challenges pain points`, category: "problems" },
-        { title: "Sales Training", description: "Sales education and training methods", expandedQuery: `${query} training education learning`, category: "education" },
-        { title: "Sales Trends", description: "Current sales trends and innovations", expandedQuery: `${query} trends innovations 2024`, category: "trending" }
+        { title: "Sales Struggles", description: "Real sales challenges and frustrations", expandedQuery: `${query} struggling problems difficult`, category: "problems" },
+        { title: "Sales Success", description: "Success stories and wins", expandedQuery: `${query} success story win achieved`, category: "success" },
+        { title: "Sales Tools", description: "Tools and software people use", expandedQuery: `${query} tools software CRM platform`, category: "tools" },
+        { title: "Sales Questions", description: "Questions people ask about sales", expandedQuery: `${query} how to help advice`, category: "questions" },
+        { title: "Sales Experiences", description: "Personal sales experiences and stories", expandedQuery: `${query} experience story happened`, category: "experiences" }
       );
     } else if (lowerQuery.includes('plant') || lowerQuery.includes('disease')) {
       subtopics.push(
-        { title: "Crop Diseases", description: "Agricultural crop disease management", expandedQuery: `${query} agriculture crops farming`, category: "industry" },
-        { title: "Disease Prevention", description: "Plant disease prevention strategies", expandedQuery: `${query} prevention treatment methods`, category: "technical" },
-        { title: "Disease Identification", description: "How to identify plant diseases", expandedQuery: `${query} identification diagnosis symptoms`, category: "education" },
-        { title: "Organic Treatment", description: "Natural and organic disease treatments", expandedQuery: `${query} organic natural treatment`, category: "technical" },
-        { title: "Garden Diseases", description: "Home garden plant disease issues", expandedQuery: `${query} garden home plants`, category: "problems" }
+        { title: "Plant Problems", description: "Plant issues and disease symptoms", expandedQuery: `${query} dying yellow leaves problems`, category: "problems" },
+        { title: "Plant Care", description: "How people care for their plants", expandedQuery: `${query} care tips watering fertilizing`, category: "experiences" },
+        { title: "Plant Solutions", description: "What worked to fix plant issues", expandedQuery: `${query} fixed cured treatment worked`, category: "success" },
+        { title: "Plant Questions", description: "Questions about plant care", expandedQuery: `${query} help identify what wrong`, category: "questions" },
+        { title: "Plant Products", description: "Products and treatments people use", expandedQuery: `${query} fertilizer spray treatment product`, category: "tools" }
+      );
+    } else if (lowerQuery.includes('marriage') || lowerQuery.includes('proposal')) {
+      subtopics.push(
+        { title: "Proposal Disasters", description: "Failed proposal stories and mistakes", expandedQuery: `${query} failed disaster mistake wrong`, category: "problems" },
+        { title: "Creative Ideas", description: "Unique and creative proposal stories", expandedQuery: `${query} creative unique romantic amazing`, category: "experiences" },
+        { title: "Ring Shopping", description: "Ring buying experiences and advice", expandedQuery: `${query} ring shopping jewelry diamond`, category: "experiences" },
+        { title: "Nervous Stories", description: "Being nervous and anxiety experiences", expandedQuery: `${query} nervous anxious scared worried`, category: "experiences" },
+        { title: "Proposal Planning", description: "Planning help and advice questions", expandedQuery: `${query} planning help advice how to`, category: "questions" },
+        { title: "Surprise Stories", description: "Surprise proposal moments and reactions", expandedQuery: `${query} surprise reaction shocked cried`, category: "success" }
       );
     } else {
-      // Generic subtopics
+      // Generic social media research subtopics
       subtopics.push(
-        { title: "Best Practices", description: "Best practices and strategies", expandedQuery: `${query} best practices strategies`, category: "business" },
-        { title: "Common Problems", description: "Common challenges and issues", expandedQuery: `${query} problems challenges issues`, category: "problems" },
-        { title: "Tools & Resources", description: "Tools and resources available", expandedQuery: `${query} tools resources software`, category: "tools" },
-        { title: "Learning Guide", description: "How to learn and get started", expandedQuery: `${query} learning guide tutorial`, category: "education" },
-        { title: "Industry Trends", description: "Current trends and innovations", expandedQuery: `${query} trends innovations 2024`, category: "trending" }
+        { title: "Real Experiences", description: "Personal experiences and stories", expandedQuery: `${query} experience story happened personal`, category: "experiences" },
+        { title: "Common Problems", description: "Problems and frustrations people have", expandedQuery: `${query} problems issues struggling difficult`, category: "problems" },
+        { title: "Success Stories", description: "What worked and success stories", expandedQuery: `${query} success worked amazing great`, category: "success" },
+        { title: "Questions Asked", description: "Questions people ask about this", expandedQuery: `${query} help advice how to`, category: "questions" },
+        { title: "Tools & Products", description: "Tools and products people mention", expandedQuery: `${query} tools products software app`, category: "tools" }
       );
     }
 
