@@ -54,7 +54,7 @@ Make each focus area specific to "${query}". Avoid generic categories.`;
       let response;
       try {
         response = await axios.post(`${this.baseUrl}/chat/completions`, {
-          model: 'llama-3.1-sonar-large-128k-chat',
+          model: 'sonar-pro',
           messages: [
             {
               role: 'user',
@@ -76,7 +76,7 @@ Make each focus area specific to "${query}". Avoid generic categories.`;
         // Try with a different model as fallback
         try {
           response = await axios.post(`${this.baseUrl}/chat/completions`, {
-            model: 'llama-3.1-sonar-small-128k-chat',
+            model: 'sonar-medium',
             messages: [
               {
                 role: 'user',
