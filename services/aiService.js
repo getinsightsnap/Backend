@@ -448,7 +448,7 @@ Return maximum 15 most relevant posts for ${category}.`;
       // Generate semantic context for the query
       const semanticContext = await this.generateSemanticContext(query);
 
-      const prompt = `You are an expert content relevance analyzer specializing in business and professional contexts. Your task is to determine which posts are ACTUALLY RELEVANT to the user's search query.
+      const prompt = `You are an expert content relevance analyzer. Your task is to determine which posts are ACTUALLY RELEVANT to the user's search query.
 
 SEARCH QUERY: "${query}"
 
@@ -456,20 +456,27 @@ SEMANTIC UNDERSTANDING:
 ${semanticContext}
 
 STRICT RELEVANCE CRITERIA:
-1. The post must be directly related to the search topic in a meaningful business/professional context
-2. Posts about completely unrelated topics (stock trading, horror stories, gaming, etc.) are NEVER relevant
-3. Posts that only mention keywords without proper context are NOT relevant
-4. Consider the semantic meaning and business context, not just keyword presence
+1. The post must be directly related to the search topic in ANY meaningful context (business, consumer, personal, entertainment, etc.)
+2. Consider the FULL semantic meaning of the search query, not just individual keywords
+3. Posts about completely unrelated topics (stock trading, horror stories, gaming, programming, etc.) are NEVER relevant
+4. Posts that only mention keywords without proper context are NOT relevant
 5. Posts asking questions about the topic ARE relevant
 6. Posts sharing experiences related to the topic ARE relevant
 7. Posts offering solutions or advice about the topic ARE relevant
 8. Posts discussing tools, platforms, strategies, or challenges related to the topic ARE relevant${ratingContext}
 
+CONTEXT AWARENESS:
+- If searching for "theme park problems", look for theme park, amusement park, rides, tickets, crowds, etc.
+- If searching for "programming", look for coding, software, development, etc.
+- If searching for "cooking", look for recipes, food, kitchen, etc.
+- Match the CONTEXT of the query, not just keywords
+
 REJECTION EXAMPLES for "${query}":
 - Stock market discussions (GameStop, trading, investments)
 - Horror stories, fiction, entertainment content
 - Gaming, sports, celebrity gossip
-- Personal drama unrelated to the business topic
+- Programming/technical content when searching for non-tech topics
+- Personal drama unrelated to the search topic
 - Random mentions of keywords without context
 
 Posts to analyze:
@@ -887,19 +894,21 @@ Format as a JSON array of objects with "title", "description", and "platform" fi
         return this.getFallbackSemanticContext(query);
       }
 
-      const prompt = `Analyze this business/professional search query and provide a comprehensive semantic understanding that will help filter relevant social media posts.
+      const prompt = `Analyze this search query and provide a comprehensive semantic understanding that will help filter relevant social media posts.
 
 SEARCH QUERY: "${query}"
 
 Provide a detailed analysis including:
-1. What this query means in business/professional context
-2. Related topics, tools, platforms, and concepts
+1. What this query means in its specific context (business, consumer, entertainment, personal, etc.)
+2. Related topics, concepts, and terms people actually use when discussing this
 3. Common problems, challenges, and pain points people discuss
-4. Solutions, strategies, and best practices mentioned
-5. Industry context and use cases
-6. What posts would be RELEVANT vs IRRELEVANT
+4. Solutions, experiences, and advice people share
+5. Industry/domain context and use cases
+6. What posts would be RELEVANT vs IRRELEVANT for this specific topic
 
-Keep the response concise but comprehensive. Focus on business and professional contexts, not entertainment or unrelated topics.`;
+IMPORTANT: Consider the FULL context of the query. If it's about theme parks, focus on amusement parks, rides, tickets, crowds, etc. If it's about programming, focus on coding, software, etc. Match the actual domain of the topic.
+
+Keep the response concise but comprehensive. Focus on what people actually discuss about this topic on social media.`;
 
       const response = await axios.post(`${this.baseUrl}/chat/completions`, {
         model: 'llama-3.1-sonar-large-128k-chat',
