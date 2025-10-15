@@ -23,6 +23,298 @@ class AIService {
   static baseUrl = 'https://api.perplexity.ai';
   static timeout = 30000; // 30 seconds
 
+  // New method: Generate query expansion options
+  static async generateQueryExpansion(query) {
+    try {
+      const apiKey = process.env.PERPLEXITY_API_KEY;
+      if (!apiKey) {
+        return this.getFallbackQueryExpansion(query);
+      }
+
+      const prompt = `Analyze this search query and generate 6-8 specific, relevant subtopics that users might be interested in. Each subtopic should be more specific and actionable than the original query.
+
+ORIGINAL QUERY: "${query}"
+
+Generate subtopics that cover:
+1. Professional/business aspects
+2. Technical/practical aspects  
+3. Problem-solving aspects
+4. Trending/current aspects
+5. Educational/learning aspects
+6. Tools/platforms aspects
+7. Industry-specific aspects
+8. Custom user input option
+
+For each subtopic, provide:
+- A clear, specific title (2-4 words)
+- A brief description (1 sentence)
+- The expanded search terms that would be used
+
+Format as JSON array:
+[
+  {
+    "title": "Subtopic Title",
+    "description": "Brief description of this subtopic",
+    "expandedQuery": "specific search terms for this subtopic",
+    "category": "business|technical|problems|trending|education|tools|industry"
+  }
+]
+
+Focus on creating actionable, specific subtopics that would lead to highly relevant social media discussions.`;
+
+      const response = await axios.post(`${this.baseUrl}/chat/completions`, {
+        model: 'llama-3.1-sonar-large-128k-chat',
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        max_tokens: 800,
+        temperature: 0.3
+      }, {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: this.timeout
+      });
+
+      const aiResponse = response.data.choices[0]?.message?.content;
+      if (!aiResponse) {
+        return this.getFallbackQueryExpansion(query);
+      }
+
+      // Parse JSON response
+      const jsonMatch = aiResponse.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) {
+        return this.getFallbackQueryExpansion(query);
+      }
+
+      const subtopics = JSON.parse(jsonMatch[0]);
+      
+      // Add custom option
+      subtopics.push({
+        title: "Custom Topic",
+        description: "Specify your own specific area of interest",
+        expandedQuery: query,
+        category: "custom",
+        isCustom: true
+      });
+
+      return subtopics;
+
+    } catch (error) {
+      logger.error('Error generating query expansion:', error);
+      return this.getFallbackQueryExpansion(query);
+    }
+  }
+
+  static getFallbackQueryExpansion(query) {
+    const lowerQuery = query.toLowerCase();
+    
+    // Generate basic subtopics based on common patterns
+    const subtopics = [];
+    
+    if (lowerQuery.includes('sales') || lowerQuery.includes('marketing')) {
+      subtopics.push(
+        { title: "Sales Strategies", description: "Sales techniques and strategies", expandedQuery: `${query} strategies techniques`, category: "business" },
+        { title: "Sales Tools", description: "Sales software and CRM tools", expandedQuery: `${query} tools software CRM`, category: "tools" },
+        { title: "Sales Challenges", description: "Common sales problems and pain points", expandedQuery: `${query} problems challenges pain points`, category: "problems" },
+        { title: "Sales Training", description: "Sales education and training methods", expandedQuery: `${query} training education learning`, category: "education" },
+        { title: "Sales Trends", description: "Current sales trends and innovations", expandedQuery: `${query} trends innovations 2024`, category: "trending" }
+      );
+    } else if (lowerQuery.includes('plant') || lowerQuery.includes('disease')) {
+      subtopics.push(
+        { title: "Crop Diseases", description: "Agricultural crop disease management", expandedQuery: `${query} agriculture crops farming`, category: "industry" },
+        { title: "Disease Prevention", description: "Plant disease prevention strategies", expandedQuery: `${query} prevention treatment methods`, category: "technical" },
+        { title: "Disease Identification", description: "How to identify plant diseases", expandedQuery: `${query} identification diagnosis symptoms`, category: "education" },
+        { title: "Organic Treatment", description: "Natural and organic disease treatments", expandedQuery: `${query} organic natural treatment`, category: "technical" },
+        { title: "Garden Diseases", description: "Home garden plant disease issues", expandedQuery: `${query} garden home plants`, category: "problems" }
+      );
+    } else {
+      // Generic subtopics
+      subtopics.push(
+        { title: "Best Practices", description: "Best practices and strategies", expandedQuery: `${query} best practices strategies`, category: "business" },
+        { title: "Common Problems", description: "Common challenges and issues", expandedQuery: `${query} problems challenges issues`, category: "problems" },
+        { title: "Tools & Resources", description: "Tools and resources available", expandedQuery: `${query} tools resources software`, category: "tools" },
+        { title: "Learning Guide", description: "How to learn and get started", expandedQuery: `${query} learning guide tutorial`, category: "education" },
+        { title: "Industry Trends", description: "Current trends and innovations", expandedQuery: `${query} trends innovations 2024`, category: "trending" }
+      );
+    }
+
+    // Add custom option
+    subtopics.push({
+      title: "Custom Topic",
+      description: "Specify your own specific area of interest",
+      expandedQuery: query,
+      category: "custom",
+      isCustom: true
+    });
+
+    return subtopics;
+  }
+
+  // New method: Focused analysis based on user's specific selections
+  static async performFocusedAnalysis(posts, expandedQuery, selectedCategory) {
+    if (!posts || posts.length === 0) {
+      return {
+        results: [],
+        metadata: {
+          totalPosts: 0,
+          relevantPosts: 0,
+          category: selectedCategory,
+          expandedQuery: expandedQuery
+        }
+      };
+    }
+
+    try {
+      logger.info(`🎯 Performing focused analysis for "${expandedQuery}" in category: ${selectedCategory}`);
+      
+      // Step 1: Enhanced relevance filtering with expanded query
+      const relevantPosts = await this.filterRelevantPosts(posts, expandedQuery);
+      
+      if (relevantPosts.length === 0) {
+        logger.warn('No relevant posts found after focused filtering');
+        return {
+          results: [],
+          metadata: {
+            totalPosts: posts.length,
+            relevantPosts: 0,
+            category: selectedCategory,
+            expandedQuery: expandedQuery
+          }
+        };
+      }
+
+      // Step 2: Category-specific analysis
+      const categorizedResults = await this.performCategorySpecificAnalysis(relevantPosts, expandedQuery, selectedCategory);
+      
+      return {
+        results: categorizedResults,
+        metadata: {
+          totalPosts: posts.length,
+          relevantPosts: relevantPosts.length,
+          category: selectedCategory,
+          expandedQuery: expandedQuery,
+          relevanceScore: relevantPosts.length / posts.length
+        }
+      };
+
+    } catch (error) {
+      logger.error('Focused analysis error:', error);
+      return {
+        results: [],
+        metadata: {
+          totalPosts: posts.length,
+          relevantPosts: 0,
+          category: selectedCategory,
+          expandedQuery: expandedQuery,
+          error: error.message
+        }
+      };
+    }
+  }
+
+  static async performCategorySpecificAnalysis(posts, expandedQuery, category) {
+    try {
+      const apiKey = process.env.PERPLEXITY_API_KEY;
+      if (!apiKey) {
+        return this.fallbackCategoryAnalysis(posts, category);
+      }
+
+      // Generate category-specific context
+      const categoryContext = this.getCategoryContext(category, expandedQuery);
+
+      const postsText = posts.map((post, index) => 
+        `${index + 1}. [${post.platform.toUpperCase()}] ${post.source} (${post.engagement} engagement):\n   "${post.content.substring(0, 300)}${post.content.length > 300 ? '...' : ''}"`
+      ).join('\n\n');
+
+      const prompt = `You are an expert social media analyst specializing in ${category.toUpperCase()} analysis. Your task is to analyze posts and extract the most relevant insights for the specific category requested.
+
+SEARCH CONTEXT: "${expandedQuery}"
+ANALYSIS CATEGORY: ${category.toUpperCase()}
+
+${categoryContext}
+
+STRICT FILTERING RULES:
+- ONLY include posts that are genuinely relevant to "${expandedQuery}" in the context of ${category}
+- REJECT posts about unrelated topics (stock trading, entertainment, gaming, etc.)
+- Focus on posts that provide meaningful insights for ${category}
+- Prioritize high-quality, actionable content
+
+Posts to analyze (${posts.length} total):
+${postsText}
+
+Respond with ONLY a JSON object containing the indices (1-based) of the most relevant posts for ${category}:
+{"relevant": [1, 3, 7, 12, ...]}
+
+Return maximum 15 most relevant posts for ${category}.`;
+
+      const response = await axios.post(`${this.baseUrl}/chat/completions`, {
+        model: 'llama-3.1-sonar-large-128k-chat',
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        max_tokens: 500,
+        temperature: 0.1
+      }, {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: this.timeout
+      });
+
+      const aiResponse = response.data.choices[0]?.message?.content;
+      if (!aiResponse) {
+        throw new Error('No response from AI category analysis');
+      }
+
+      // Parse AI response
+      const result = JSON.parse(aiResponse);
+      const relevantIndices = result.relevant || [];
+      
+      // Convert indices to posts
+      const relevantPosts = relevantIndices
+        .filter(index => index >= 1 && index <= posts.length)
+        .map(index => posts[index - 1])
+        .filter(Boolean);
+
+      logger.info(`✅ Category analysis complete: ${relevantPosts.length} posts for ${category}`);
+      return relevantPosts;
+
+    } catch (error) {
+      logger.error('Category-specific analysis error:', error);
+      return this.fallbackCategoryAnalysis(posts, category);
+    }
+  }
+
+  static getCategoryContext(category, query) {
+    const contexts = {
+      'pain-points': `PAIN POINTS ANALYSIS: Extract posts that discuss problems, frustrations, challenges, complaints, or negative experiences related to "${query}". Focus on real-world issues people are facing.`,
+      'trending-ideas': `TRENDING IDEAS ANALYSIS: Extract posts about popular discussions, viral content, emerging trends, news, or high-engagement content related to "${query}". Focus on what's currently popular and gaining attention.`,
+      'content-ideas': `CONTENT IDEAS ANALYSIS: Extract posts that offer solutions, tips, tutorials, educational content, how-to guides, or posts asking questions about "${query}". Focus on actionable and educational content.`
+    };
+
+    return contexts[category] || `ANALYSIS: Extract the most relevant posts related to "${query}" in the context of ${category}.`;
+  }
+
+  static fallbackCategoryAnalysis(posts, category) {
+    logger.info(`🔄 Using fallback analysis for ${category}`);
+    
+    // Simple engagement-based filtering as fallback
+    const sortedPosts = posts
+      .sort((a, b) => (b.engagement || 0) - (a.engagement || 0))
+      .slice(0, 15);
+
+    return sortedPosts;
+  }
+
   static async categorizePosts(posts, query) {
     if (!posts || posts.length === 0) {
       return {
@@ -130,23 +422,32 @@ class AIService {
         ratingContext = `\n\nLEARNING FROM USER FEEDBACK:\nPrevious users rated posts about "${query}" with these patterns:\n${ratingInsights.map(insight => `- ${insight.platform}: Average rating ${insight.avg_rating}/5 (${insight.total_ratings} ratings) - ${insight.improvement_suggestions || 'No specific suggestions'}`).join('\n')}\n\nUse this feedback to better understand what users consider relevant for "${query}".`;
       }
 
-      const prompt = `You are an expert content relevance analyzer. Your task is to determine which posts are ACTUALLY RELEVANT to the user's search query.
+      // Generate semantic context for the query
+      const semanticContext = await this.generateSemanticContext(query);
+
+      const prompt = `You are an expert content relevance analyzer specializing in business and professional contexts. Your task is to determine which posts are ACTUALLY RELEVANT to the user's search query.
 
 SEARCH QUERY: "${query}"
 
-ANALYSIS CRITERIA:
-1. The post must be directly related to the search topic or contain meaningful discussion about it
-2. Posts that only mention keywords without context are NOT relevant
-3. Posts about completely different topics are NOT relevant
-4. Consider semantic meaning, not just keyword presence
+SEMANTIC UNDERSTANDING:
+${semanticContext}
+
+STRICT RELEVANCE CRITERIA:
+1. The post must be directly related to the search topic in a meaningful business/professional context
+2. Posts about completely unrelated topics (stock trading, horror stories, gaming, etc.) are NEVER relevant
+3. Posts that only mention keywords without proper context are NOT relevant
+4. Consider the semantic meaning and business context, not just keyword presence
 5. Posts asking questions about the topic ARE relevant
 6. Posts sharing experiences related to the topic ARE relevant
-7. Posts offering solutions or advice about the topic ARE relevant${ratingContext}
+7. Posts offering solutions or advice about the topic ARE relevant
+8. Posts discussing tools, platforms, strategies, or challenges related to the topic ARE relevant${ratingContext}
 
-EXAMPLES:
-- Query: "workflow automation for real estate agents"
-- RELEVANT: Posts about real estate automation tools, CRM systems for agents, workflow challenges in real estate
-- NOT RELEVANT: Posts about personal finance, career changes, or general business topics that happen to mention "workflow"
+REJECTION EXAMPLES for "${query}":
+- Stock market discussions (GameStop, trading, investments)
+- Horror stories, fiction, entertainment content
+- Gaming, sports, celebrity gossip
+- Personal drama unrelated to the business topic
+- Random mentions of keywords without context
 
 Posts to analyze:
 ${postsText}
@@ -216,26 +517,32 @@ If no posts are relevant, respond with: {"relevant": []}`;
         return `${index + 1}. [${post.platform.toUpperCase()}] Posted ${post.timestamp} | Engagement: ${engagement} ${engagementIndicator}\n   ${post.content.substring(0, 200)}...`;
       }).join('\n\n');
 
-      const prompt = `You are an expert social media sentiment analyst specializing in "${query}". Analyze these posts and categorize them by SENTIMENT and INTENT, not by platform.
+      // Get semantic context for better categorization
+      const semanticContext = await this.generateSemanticContext(query);
+
+      const prompt = `You are an expert social media sentiment analyst specializing in business and professional contexts. Analyze these posts and categorize them by SENTIMENT and INTENT related to "${query}".
 
 SEARCH CONTEXT: "${query}"
-Focus on understanding what people are saying about this specific topic across all platforms.
+
+SEMANTIC UNDERSTANDING:
+${semanticContext}
 
 IMPORTANT: Mix posts from ALL platforms (Reddit, X/Twitter, YouTube) in each category. Do NOT separate by platform.
 
 CATEGORIES BY SENTIMENT/INTENT:
-1. PAIN POINTS: Posts expressing problems, frustrations, challenges, complaints, or negative experiences specifically related to "${query}"
-2. TRENDING IDEAS: Posts about popular/viral discussions, news, emerging trends, or high-engagement content related to "${query}"
-3. CONTENT IDEAS: Posts offering solutions, tips, tutorials, educational content, or asking questions about "${query}"
+1. PAIN POINTS: Posts expressing problems, frustrations, challenges, complaints, or negative experiences specifically related to "${query}" in business/professional context
+2. TRENDING IDEAS: Posts about popular/viral discussions, news, emerging trends, or high-engagement content related to "${query}" in business/professional context  
+3. CONTENT IDEAS: Posts offering solutions, tips, tutorials, educational content, or asking questions about "${query}" in business/professional context
 
-ANALYSIS RULES:
-- Focus on posts that are directly relevant to "${query}" context
+STRICT ANALYSIS RULES:
+- ONLY categorize posts that are genuinely relevant to "${query}" in business/professional context
+- REJECT posts about unrelated topics (stock trading, horror stories, gaming, entertainment)
 - DISTRIBUTE posts across ALL THREE categories (don't put everything in one category)
 - MIX platforms in each category - a category can have Reddit + X + YouTube posts together
 - Prioritize high engagement posts for trending ideas
 - Include posts asking questions about the topic as content ideas
 - Include complaints and frustrations about the topic as pain points
-- Consider the broader context of "${query}" when categorizing
+- Consider the broader business context of "${query}" when categorizing
 
 Posts to analyze (${maxPosts} total):
 ${postsText}
@@ -546,6 +853,75 @@ Format as a JSON array of objects with "title", "description", and "platform" fi
     ];
 
     return ideas;
+  }
+
+  // Generate semantic context for better AI understanding
+  static async generateSemanticContext(query) {
+    try {
+      const apiKey = process.env.PERPLEXITY_API_KEY;
+      if (!apiKey) {
+        // Fallback semantic context without AI
+        return this.getFallbackSemanticContext(query);
+      }
+
+      const prompt = `Analyze this business/professional search query and provide a comprehensive semantic understanding that will help filter relevant social media posts.
+
+SEARCH QUERY: "${query}"
+
+Provide a detailed analysis including:
+1. What this query means in business/professional context
+2. Related topics, tools, platforms, and concepts
+3. Common problems, challenges, and pain points people discuss
+4. Solutions, strategies, and best practices mentioned
+5. Industry context and use cases
+6. What posts would be RELEVANT vs IRRELEVANT
+
+Keep the response concise but comprehensive. Focus on business and professional contexts, not entertainment or unrelated topics.`;
+
+      const response = await axios.post(`${this.baseUrl}/chat/completions`, {
+        model: 'llama-3.1-sonar-large-128k-chat',
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        max_tokens: 400,
+        temperature: 0.2
+      }, {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: this.timeout
+      });
+
+      const aiResponse = response.data.choices[0]?.message?.content;
+      return aiResponse || this.getFallbackSemanticContext(query);
+
+    } catch (error) {
+      logger.error('Error generating semantic context:', error);
+      return this.getFallbackSemanticContext(query);
+    }
+  }
+
+  static getFallbackSemanticContext(query) {
+    // Basic semantic context without AI
+    const lowerQuery = query.toLowerCase();
+    
+    if (lowerQuery.includes('sales')) {
+      return `Business Context: Sales-related discussions including sales strategies, CRM tools, sales processes, lead generation, sales training, sales metrics, sales automation, sales teams, sales challenges, customer acquisition, conversion optimization, sales platforms, and sales performance.`;
+    }
+    
+    if (lowerQuery.includes('engagement')) {
+      return `Business Context: Engagement-related discussions including customer engagement, employee engagement, social media engagement, engagement strategies, engagement metrics, engagement tools, user engagement, content engagement, and engagement optimization.`;
+    }
+    
+    if (lowerQuery.includes('marketing')) {
+      return `Business Context: Marketing-related discussions including marketing strategies, digital marketing, content marketing, social media marketing, marketing automation, marketing tools, marketing campaigns, marketing metrics, and marketing optimization.`;
+    }
+    
+    return `Business Context: Professional discussions related to "${query}" including strategies, tools, platforms, challenges, solutions, best practices, and industry insights.`;
   }
 
   // Get rating insights for a query to improve AI relevance
