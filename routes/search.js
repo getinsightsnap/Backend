@@ -8,6 +8,162 @@ const logger = require('../utils/logger');
 
 const router = express.Router();
 
+// New endpoint: Generate query expansion options
+router.post('/expand-query', async (req, res) => {
+  try {
+    const { query } = req.body;
+    
+    if (!query || typeof query !== 'string' || query.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Query is required and must be a non-empty string'
+      });
+    }
+
+    logger.info(`🔍 Generating query expansion for: "${query}"`);
+    
+    const subtopics = await AIService.generateQueryExpansion(query.trim());
+    
+    res.json({
+      success: true,
+      data: {
+        originalQuery: query.trim(),
+        subtopics: subtopics
+      }
+    });
+
+  } catch (error) {
+    logger.error('Query expansion error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate query expansion options',
+      error: error.message
+    });
+  }
+});
+
+// New endpoint: Perform focused search with specific subtopic and category
+router.post('/focused-search', async (req, res) => {
+  try {
+    const { 
+      originalQuery, 
+      expandedQuery, 
+      selectedCategory, 
+      platforms = ['reddit', 'x', 'youtube'],
+      timeFilter = 'week',
+      language = 'en'
+    } = req.body;
+
+    // Validation
+    if (!originalQuery || !expandedQuery || !selectedCategory) {
+      return res.status(400).json({
+        success: false,
+        message: 'originalQuery, expandedQuery, and selectedCategory are required'
+      });
+    }
+
+    const validCategories = ['pain-points', 'trending-ideas', 'content-ideas'];
+    if (!validCategories.includes(selectedCategory)) {
+      return res.status(400).json({
+        success: false,
+        message: `selectedCategory must be one of: ${validCategories.join(', ')}`
+      });
+    }
+
+    logger.info(`🎯 Focused search: "${expandedQuery}" in category: ${selectedCategory}`);
+
+    const startTime = Date.now();
+    const allPosts = [];
+
+    // Collect posts from all platforms
+    const platformPromises = [];
+    
+    if (platforms.includes('reddit')) {
+      platformPromises.push(
+        RedditService.searchPosts(expandedQuery, language, timeFilter)
+          .then(posts => posts.map(post => ({ ...post, platform: 'reddit' })))
+          .catch(error => {
+            logger.error('Reddit search error:', error);
+            return [];
+          })
+      );
+    }
+
+    if (platforms.includes('x')) {
+      platformPromises.push(
+        XService.searchPosts(expandedQuery, language)
+          .then(posts => posts.map(post => ({ ...post, platform: 'x' })))
+          .catch(error => {
+            logger.error('X search error:', error);
+            return [];
+          })
+      );
+    }
+
+    if (platforms.includes('youtube')) {
+      platformPromises.push(
+        YouTubeService.searchPosts(expandedQuery, language)
+          .then(posts => posts.map(post => ({ ...post, platform: 'youtube' })))
+          .catch(error => {
+            logger.error('YouTube search error:', error);
+            return [];
+          })
+      );
+    }
+
+    // Wait for all platform searches to complete
+    const platformResults = await Promise.all(platformPromises);
+    platformResults.forEach(posts => allPosts.push(...posts));
+
+    logger.info(`📊 Collected ${allPosts.length} posts from ${platforms.join(', ')}`);
+
+    if (allPosts.length === 0) {
+      const duration = Date.now() - startTime;
+      return res.json({
+        success: true,
+        data: {
+          results: [],
+          metadata: {
+            duration: duration,
+            totalPosts: 0,
+            relevantPosts: 0,
+            category: selectedCategory,
+            expandedQuery: expandedQuery,
+            originalQuery: originalQuery,
+            platforms: platforms
+          }
+        }
+      });
+    }
+
+    // Perform focused AI analysis
+    const analysisResult = await AIService.performFocusedAnalysis(allPosts, expandedQuery, selectedCategory);
+    
+    const duration = Date.now() - startTime;
+    
+    res.json({
+      success: true,
+      data: {
+        results: analysisResult.results,
+        metadata: {
+          ...analysisResult.metadata,
+          duration: duration,
+          originalQuery: originalQuery,
+          platforms: platforms
+        }
+      }
+    });
+
+  } catch (error) {
+    logger.error('Focused search error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Focused search failed',
+      error: error.message
+    });
+  }
+});
+
 // Helper function to generate intelligent no-results messages
 function generateNoResultsMessage(query, timeFilter, totalPosts) {
   const timeMessages = {
