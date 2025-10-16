@@ -321,6 +321,11 @@ Make each focus area specific to "${query}". Avoid generic categories.`;
         return this.fallbackCategoryAnalysis(posts, category);
       }
 
+      logger.info(`🔍 Performing ${category} analysis for: "${expandedQuery}"`);
+
+      // Generate semantic context for better understanding
+      const semanticContext = await this.generateSemanticContext(expandedQuery);
+      
       // Generate category-specific context
       const categoryContext = this.getCategoryContext(category, expandedQuery);
 
@@ -328,18 +333,23 @@ Make each focus area specific to "${query}". Avoid generic categories.`;
         `${index + 1}. [${post.platform.toUpperCase()}] ${post.source} (${post.engagement} engagement):\n   "${post.content.substring(0, 300)}${post.content.length > 300 ? '...' : ''}"`
       ).join('\n\n');
 
-      const prompt = `You are an expert social media analyst specializing in ${category.toUpperCase()} analysis. Your task is to analyze posts and extract the most relevant insights for the specific category requested.
+      const prompt = `You are an expert social media analyst. Your task is to analyze posts and extract the most relevant insights for "${expandedQuery}" in the ${category.toUpperCase()} category.
 
 SEARCH CONTEXT: "${expandedQuery}"
 ANALYSIS CATEGORY: ${category.toUpperCase()}
 
+SEMANTIC UNDERSTANDING:
+${semanticContext}
+
 ${categoryContext}
 
-STRICT FILTERING RULES:
-- ONLY include posts that are genuinely relevant to "${expandedQuery}" in the context of ${category}
-- REJECT posts about unrelated topics (stock trading, entertainment, gaming, etc.)
-- Focus on posts that provide meaningful insights for ${category}
-- Prioritize high-quality, actionable content
+CRITICAL FILTERING RULES:
+- ONLY include posts that are genuinely relevant to "${expandedQuery}" in its ACTUAL context/domain
+- Match the CONTEXT of the query - if it's about theme parks, focus on amusement park content; if it's about cooking, focus on food/recipe content
+- REJECT posts about completely unrelated topics (programming when searching for theme parks, stock trading when searching for cooking, etc.)
+- For ${category}, focus specifically on posts that provide meaningful ${category} insights about "${expandedQuery}"
+- Prioritize high-quality, actionable content that users would find valuable
+- Remember: "${expandedQuery}" defines the specific focus - stay within that domain
 
 Posts to analyze (${posts.length} total):
 ${postsText}
@@ -350,7 +360,7 @@ Respond with ONLY a JSON object containing the indices (1-based) of the most rel
 Return maximum 15 most relevant posts for ${category}.`;
 
       const response = await axios.post(`${this.baseUrl}/chat/completions`, {
-        model: 'llama-3.1-sonar-large-128k-chat',
+        model: 'sonar-pro',
         messages: [
           {
             role: 'user',
@@ -562,7 +572,7 @@ Respond with ONLY a JSON object containing the indices (1-based) of relevant pos
 If no posts are relevant, respond with: {"relevant": []}`;
 
       const response = await axios.post(`${this.baseUrl}/chat/completions`, {
-        model: 'llama-3.1-sonar-large-128k-chat',
+        model: 'sonar-pro',
         messages: [
           {
             role: 'user',
@@ -624,7 +634,7 @@ If no posts are relevant, respond with: {"relevant": []}`;
       // Get semantic context for better categorization
       const semanticContext = await this.generateSemanticContext(query);
 
-      const prompt = `You are an expert social media sentiment analyst specializing in business and professional contexts. Analyze these posts and categorize them by SENTIMENT and INTENT related to "${query}".
+      const prompt = `You are an expert social media sentiment analyst. Analyze these posts and categorize them by SENTIMENT and INTENT related to "${query}".
 
 SEARCH CONTEXT: "${query}"
 
@@ -634,19 +644,19 @@ ${semanticContext}
 IMPORTANT: Mix posts from ALL platforms (Reddit, X/Twitter, YouTube) in each category. Do NOT separate by platform.
 
 CATEGORIES BY SENTIMENT/INTENT:
-1. PAIN POINTS: Posts expressing problems, frustrations, challenges, complaints, or negative experiences specifically related to "${query}" in business/professional context
-2. TRENDING IDEAS: Posts about popular/viral discussions, news, emerging trends, or high-engagement content related to "${query}" in business/professional context  
-3. CONTENT IDEAS: Posts offering solutions, tips, tutorials, educational content, or asking questions about "${query}" in business/professional context
+1. PAIN POINTS: Posts expressing problems, frustrations, challenges, complaints, or negative experiences specifically related to "${query}" in its natural context
+2. TRENDING IDEAS: Posts about popular/viral discussions, news, emerging trends, or high-engagement content related to "${query}" in its natural context  
+3. CONTENT IDEAS: Posts offering solutions, tips, tutorials, educational content, or asking questions about "${query}" in its natural context
 
 STRICT ANALYSIS RULES:
-- ONLY categorize posts that are genuinely relevant to "${query}" in business/professional context
-- REJECT posts about unrelated topics (stock trading, horror stories, gaming, entertainment)
+- ONLY categorize posts that are genuinely relevant to "${query}" in its ACTUAL domain/context
+- REJECT posts about completely unrelated topics (stock trading, horror stories, gaming when searching for cooking, programming when searching for theme parks, etc.)
 - DISTRIBUTE posts across ALL THREE categories (don't put everything in one category)
 - MIX platforms in each category - a category can have Reddit + X + YouTube posts together
 - Prioritize high engagement posts for trending ideas
 - Include posts asking questions about the topic as content ideas
 - Include complaints and frustrations about the topic as pain points
-- Consider the broader business context of "${query}" when categorizing
+- Match the CONTEXT of the query - if it's about theme parks, look for amusement park discussions; if it's about programming, look for coding discussions
 
 Posts to analyze (${maxPosts} total):
 ${postsText}
@@ -661,7 +671,7 @@ Respond with ONLY a JSON object in this exact format:
 Example: {"painPoints": [1, 5, 8], "trendingIdeas": [2, 3, 7], "contentIdeas": [4, 6, 9]}`;
 
       const response = await axios.post(`${this.baseUrl}/chat/completions`, {
-        model: 'llama-3.1-sonar-large-128k-chat',
+        model: 'sonar-pro',
         messages: [
           {
             role: 'user',
@@ -906,7 +916,7 @@ Generate 5 specific, actionable content ideas that would resonate with this audi
 Format as a JSON array of objects with "title", "description", and "platform" fields.`;
 
       const response = await axios.post(`${this.baseUrl}/chat/completions`, {
-        model: 'llama-3.1-sonar-large-128k-chat',
+        model: 'sonar-pro',
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 800,
         temperature: 0.7
@@ -985,7 +995,7 @@ IMPORTANT: Consider the FULL context of the query. If it's about theme parks, fo
 Keep the response concise but comprehensive. Focus on what people actually discuss about this topic on social media.`;
 
       const response = await axios.post(`${this.baseUrl}/chat/completions`, {
-        model: 'llama-3.1-sonar-large-128k-chat',
+        model: 'sonar-pro',
         messages: [
           {
             role: 'user',
@@ -1015,6 +1025,7 @@ Keep the response concise but comprehensive. Focus on what people actually discu
     // Basic semantic context without AI
     const lowerQuery = query.toLowerCase();
     
+    // Business contexts
     if (lowerQuery.includes('sales')) {
       return `Business Context: Sales-related discussions including sales strategies, CRM tools, sales processes, lead generation, sales training, sales metrics, sales automation, sales teams, sales challenges, customer acquisition, conversion optimization, sales platforms, and sales performance.`;
     }
@@ -1027,7 +1038,37 @@ Keep the response concise but comprehensive. Focus on what people actually discu
       return `Business Context: Marketing-related discussions including marketing strategies, digital marketing, content marketing, social media marketing, marketing automation, marketing tools, marketing campaigns, marketing metrics, and marketing optimization.`;
     }
     
-    return `Business Context: Professional discussions related to "${query}" including strategies, tools, platforms, challenges, solutions, best practices, and industry insights.`;
+    // Entertainment contexts
+    if (lowerQuery.includes('theme park') || lowerQuery.includes('amusement')) {
+      return `Entertainment Context: Theme park discussions including rides, attractions, tickets, crowds, wait times, food, experiences, family trips, park reviews, seasonal events, fast passes, and visitor experiences.`;
+    }
+    
+    if (lowerQuery.includes('movie') || lowerQuery.includes('film')) {
+      return `Entertainment Context: Movie discussions including reviews, recommendations, plot discussions, actor performances, box office, streaming, genres, franchises, and cinematic experiences.`;
+    }
+    
+    // Food contexts
+    if (lowerQuery.includes('cooking') || lowerQuery.includes('recipe') || lowerQuery.includes('food')) {
+      return `Food Context: Cooking discussions including recipes, ingredients, cooking techniques, kitchen tools, meal planning, food reviews, dietary preferences, cooking challenges, and culinary experiences.`;
+    }
+    
+    // Travel contexts
+    if (lowerQuery.includes('travel') || lowerQuery.includes('vacation') || lowerQuery.includes('trip')) {
+      return `Travel Context: Travel discussions including destinations, planning, accommodations, transportation, activities, travel tips, experiences, budgeting, and travel recommendations.`;
+    }
+    
+    // Health contexts
+    if (lowerQuery.includes('health') || lowerQuery.includes('fitness') || lowerQuery.includes('exercise')) {
+      return `Health Context: Health discussions including wellness, fitness routines, medical advice, nutrition, mental health, physical challenges, recovery, and health experiences.`;
+    }
+    
+    // Technology contexts
+    if (lowerQuery.includes('programming') || lowerQuery.includes('coding') || lowerQuery.includes('software')) {
+      return `Technology Context: Programming discussions including coding languages, software development, debugging, frameworks, tools, programming challenges, career advice, and technical solutions.`;
+    }
+    
+    // Default context based on query
+    return `Context: Discussions related to "${query}" including experiences, problems, solutions, tips, questions, and insights that people share about this topic on social media.`;
   }
 
   // Get rating insights for a query to improve AI relevance
