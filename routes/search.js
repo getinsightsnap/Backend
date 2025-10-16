@@ -137,7 +137,23 @@ router.post('/focused-search', async (req, res) => {
     }
 
     // Perform focused AI analysis
-    const analysisResult = await AIService.performFocusedAnalysis(allPosts, expandedQuery, selectedCategory);
+    let analysisResult = await AIService.performFocusedAnalysis(allPosts, expandedQuery, selectedCategory);
+    
+    // Apply tier-based limits (same as regular search)
+    const userTier = req.body.userTier || 'free';
+    const tierLimits = {
+      free: { perPlatform: 3, totalPerCategory: 9 },
+      standard: { perPlatform: 5, totalPerCategory: 15 },
+      pro: { perPlatform: 10, totalPerCategory: 30 }
+    };
+    const limits = tierLimits[userTier] || tierLimits.free;
+    
+    // Apply per-platform limits to the results
+    if (analysisResult && analysisResult.length > 0) {
+      analysisResult = applyPerPlatformLimits(analysisResult, limits.perPlatform);
+    }
+    
+    logger.info(`📊 Applied ${userTier} tier limits: ${limits.perPlatform} per platform (max ${limits.totalPerCategory} total), final count: ${analysisResult.length}`);
     
     const duration = Date.now() - startTime;
     
