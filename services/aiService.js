@@ -288,6 +288,23 @@ Make each focus area specific to "${query}". Avoid generic categories.`;
       // Step 2: Category-specific analysis
       const categorizedResults = await this.performCategorySpecificAnalysis(relevantPosts, expandedQuery, selectedCategory);
       
+      // Check if AI returned no relevant content message
+      if (categorizedResults && categorizedResults.noRelevantContent) {
+        return {
+          results: [],
+          metadata: {
+            totalPosts: posts.length,
+            relevantPosts: relevantPosts.length,
+            category: selectedCategory,
+            expandedQuery: expandedQuery,
+            relevanceScore: relevantPosts.length / posts.length,
+            noRelevantContent: true,
+            message: categorizedResults.message,
+            availablePosts: categorizedResults.availablePosts || 0
+          }
+        };
+      }
+      
       return {
         results: categorizedResults,
         metadata: {
@@ -392,12 +409,29 @@ Return maximum 15 most relevant posts for ${category}.`;
         .map(index => posts[index - 1])
         .filter(Boolean);
 
+      // Check if we have enough relevant posts (minimum threshold)
+      const minRelevantPosts = 2; // Minimum posts needed to show results
+      if (relevantPosts.length < minRelevantPosts) {
+        logger.warn(`❌ Not enough relevant posts found for ${category}: ${relevantPosts.length}/${minRelevantPosts} minimum`);
+        return {
+          noRelevantContent: true,
+          message: `We couldn't find enough relevant ${category.replace('-', ' ')} content for "${expandedQuery}" in the current time period. Try expanding your search or selecting a different focus area.`,
+          availablePosts: relevantPosts.length,
+          totalPosts: posts.length
+        };
+      }
+
       logger.info(`✅ Category analysis complete: ${relevantPosts.length} posts for ${category}`);
       return relevantPosts;
 
     } catch (error) {
       logger.error('Category-specific analysis error:', error);
-      return this.fallbackCategoryAnalysis(posts, category);
+      // Instead of fallback, return no relevant content message
+      return {
+        noRelevantContent: true,
+        message: `Unable to analyze ${category.replace('-', ' ')} content for "${expandedQuery}". Please try again or select a different focus area.`,
+        error: error.message
+      };
     }
   }
 
