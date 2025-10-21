@@ -290,6 +290,7 @@ Make each focus area specific to "${query}". Avoid generic categories.`;
       
       // Check if AI returned no relevant content message
       if (categorizedResults && categorizedResults.noRelevantContent) {
+        logger.warn('⚠️ No relevant content message returned from category analysis');
         return {
           results: [],
           metadata: {
@@ -305,8 +306,13 @@ Make each focus area specific to "${query}". Avoid generic categories.`;
         };
       }
       
+      // Ensure categorizedResults is an array
+      const finalResults = Array.isArray(categorizedResults) ? categorizedResults : [];
+      
+      logger.info(`✅ Focused analysis complete: ${finalResults.length} posts for ${selectedCategory}`);
+      
       return {
-        results: categorizedResults,
+        results: finalResults,
         metadata: {
           totalPosts: posts.length,
           relevantPosts: relevantPosts.length,
@@ -396,11 +402,31 @@ Return maximum 15 most relevant posts for ${category}.`;
 
       const aiResponse = response.data.choices[0]?.message?.content;
       if (!aiResponse) {
+        logger.error('No response content from AI');
         throw new Error('No response from AI category analysis');
       }
 
-      // Parse AI response
-      const result = JSON.parse(aiResponse);
+      logger.info(`📝 AI response received: ${aiResponse.substring(0, 200)}...`);
+
+      // Parse AI response with error handling
+      let result;
+      try {
+        // Try to extract JSON from markdown code blocks if present
+        let jsonStr = aiResponse.trim();
+        if (jsonStr.includes('```json')) {
+          jsonStr = jsonStr.split('```json')[1].split('```')[0].trim();
+        } else if (jsonStr.includes('```')) {
+          jsonStr = jsonStr.split('```')[1].split('```')[0].trim();
+        }
+        
+        result = JSON.parse(jsonStr);
+      } catch (parseError) {
+        logger.error('Failed to parse AI response:', parseError.message);
+        logger.error('AI response was:', aiResponse);
+        // Return empty array on parse error
+        return [];
+      }
+      
       const relevantIndices = result.relevant || [];
       
       // Convert indices to posts
@@ -410,12 +436,12 @@ Return maximum 15 most relevant posts for ${category}.`;
         .filter(Boolean);
 
       // Check if we have enough relevant posts (minimum threshold)
-      const minRelevantPosts = 2; // Minimum posts needed to show results
+      const minRelevantPosts = 1; // Minimum posts needed to show results (lowered to 1 to be less strict)
       if (relevantPosts.length < minRelevantPosts) {
         logger.warn(`❌ Not enough relevant posts found for ${category}: ${relevantPosts.length}/${minRelevantPosts} minimum`);
         return {
           noRelevantContent: true,
-          message: `We couldn't find enough relevant ${category.replace('-', ' ')} content for "${expandedQuery}" in the current time period. Try expanding your search or selecting a different focus area.`,
+          message: `We couldn't find relevant ${category.replace('-', ' ')} content for "${expandedQuery}" in the current time period. Try expanding your search or selecting a different focus area.`,
           availablePosts: relevantPosts.length,
           totalPosts: posts.length
         };
@@ -425,13 +451,10 @@ Return maximum 15 most relevant posts for ${category}.`;
       return relevantPosts;
 
     } catch (error) {
-      logger.error('Category-specific analysis error:', error);
-      // Instead of fallback, return no relevant content message
-      return {
-        noRelevantContent: true,
-        message: `Unable to analyze ${category.replace('-', ' ')} content for "${expandedQuery}". Please try again or select a different focus area.`,
-        error: error.message
-      };
+      logger.error('Category-specific analysis error:', error.message);
+      logger.error('Full error:', error);
+      // On error, return empty array instead of error object to maintain consistency
+      return [];
     }
   }
 
