@@ -161,19 +161,29 @@ router.post('/focused-search', async (req, res) => {
     // Apply tier-based limits (same as regular search)
     const userTier = req.body.userTier || 'free';
     const tierLimits = {
-      free: { perPlatform: 3, totalPerCategory: 9 },
-      standard: { perPlatform: 5, totalPerCategory: 15 },
-      pro: { perPlatform: 10, totalPerCategory: 30 }
+      free: { perPlatform: 1, totalPerCategory: 3, isFree: true }, // Free users get 3 total results combined
+      standard: { perPlatform: 3, totalPerCategory: 9 }, // Standard: 3 per platform
+      pro: { perPlatform: 5, totalPerCategory: 15 } // Pro: 5 per platform
     };
     const limits = tierLimits[userTier] || tierLimits.free;
     
     // Apply per-platform limits to the results
     let finalResults = analysisResult.results || [];
     if (finalResults && finalResults.length > 0) {
-      finalResults = applyPerPlatformLimits(finalResults, limits.perPlatform);
+      if (limits.isFree) {
+        // Free users: 3 total results with Reddit compensation
+        finalResults = applyFreeUserLimits(finalResults);
+      } else {
+        // Standard/Pro users: per-platform limits
+        finalResults = applyPerPlatformLimits(finalResults, limits.perPlatform);
+      }
     }
     
-    logger.info(`📊 Applied ${userTier} tier limits: ${limits.perPlatform} per platform (max ${limits.totalPerCategory} total), final count: ${finalResults.length}`);
+    if (limits.isFree) {
+      logger.info(`📊 Applied ${userTier} tier limits: 3 total results with Reddit compensation, final count: ${finalResults.length}`);
+    } else {
+      logger.info(`📊 Applied ${userTier} tier limits: ${limits.perPlatform} per platform (max ${limits.totalPerCategory} total), final count: ${finalResults.length}`);
+    }
     
     const duration = Date.now() - startTime;
     
@@ -458,19 +468,31 @@ router.post('/', validateSearchRequest, async (req, res) => {
     // Apply tier-based result limiting per platform within each category
     const userTier = req.body.userTier || 'free';
     const tierLimits = {
-      free: { perPlatform: 3, totalPerCategory: 9 },      // 3 per platform × 3 platforms = 9 per category
-      standard: { perPlatform: 5, totalPerCategory: 15 }, // 5 per platform × 3 platforms = 15 per category  
-      pro: { perPlatform: 10, totalPerCategory: 30 }      // 10 per platform × 3 platforms = 30 per category
+      free: { perPlatform: 1, totalPerCategory: 3, isFree: true }, // Free users get 3 total results combined
+      standard: { perPlatform: 3, totalPerCategory: 9 }, // Standard: 3 per platform × 3 platforms = 9 per category
+      pro: { perPlatform: 5, totalPerCategory: 15 } // Pro: 5 per platform × 3 platforms = 15 per category
     };
 
     const limits = tierLimits[userTier] || tierLimits.free;
     
     // Apply per-platform limits to each category
-    categorizedResults.painPoints = applyPerPlatformLimits(categorizedResults.painPoints, limits.perPlatform);
-    categorizedResults.trendingIdeas = applyPerPlatformLimits(categorizedResults.trendingIdeas, limits.perPlatform);
-    categorizedResults.contentIdeas = applyPerPlatformLimits(categorizedResults.contentIdeas, limits.perPlatform);
+    if (limits.isFree) {
+      // Free users: 3 total results with Reddit compensation per category
+      categorizedResults.painPoints = applyFreeUserLimits(categorizedResults.painPoints);
+      categorizedResults.trendingIdeas = applyFreeUserLimits(categorizedResults.trendingIdeas);
+      categorizedResults.contentIdeas = applyFreeUserLimits(categorizedResults.contentIdeas);
+    } else {
+      // Standard/Pro users: per-platform limits
+      categorizedResults.painPoints = applyPerPlatformLimits(categorizedResults.painPoints, limits.perPlatform);
+      categorizedResults.trendingIdeas = applyPerPlatformLimits(categorizedResults.trendingIdeas, limits.perPlatform);
+      categorizedResults.contentIdeas = applyPerPlatformLimits(categorizedResults.contentIdeas, limits.perPlatform);
+    }
     
-    logger.info(`📊 Applied ${userTier} tier limits: ${limits.perPlatform} per platform (${limits.totalPerCategory} total per category)`);
+    if (limits.isFree) {
+      logger.info(`📊 Applied ${userTier} tier limits: 3 total results with Reddit compensation per category`);
+    } else {
+      logger.info(`📊 Applied ${userTier} tier limits: ${limits.perPlatform} per platform (${limits.totalPerCategory} total per category)`);
+    }
 
     const duration = Date.now() - startTime;
     const totalPosts = allPosts.length;
@@ -574,6 +596,51 @@ function applyPerPlatformLimits(posts, limitPerPlatform) {
     filtered.push(...remainingPosts.slice(0, toAdd));
   }
 
+  return filtered;
+}
+
+// Helper function for free users: 3 total results with Reddit compensation
+function applyFreeUserLimits(posts) {
+  if (!posts || posts.length === 0) return [];
+  
+  const platforms = ['reddit', 'x', 'youtube'];
+  const filtered = [];
+  const usedPosts = new Set();
+  
+  // First pass: Try to get 1 result from each platform
+  platforms.forEach(platform => {
+    const platformPosts = posts.filter(post => post.platform === platform && !usedPosts.has(post.id));
+    if (platformPosts.length > 0) {
+      const selectedPost = platformPosts[0];
+      usedPosts.add(selectedPost.id);
+      filtered.push(selectedPost);
+    }
+  });
+  
+  // Second pass: If we don't have 3 results, compensate with Reddit posts
+  const remainingSlots = 3 - filtered.length;
+  if (remainingSlots > 0) {
+    const redditPosts = posts.filter(post => 
+      post.platform === 'reddit' && !usedPosts.has(post.id)
+    );
+    const toAdd = Math.min(redditPosts.length, remainingSlots);
+    redditPosts.slice(0, toAdd).forEach(post => {
+      usedPosts.add(post.id);
+      filtered.push(post);
+    });
+  }
+  
+  // Third pass: If still not 3 results, fill with any remaining posts
+  const finalRemainingSlots = 3 - filtered.length;
+  if (finalRemainingSlots > 0) {
+    const remainingPosts = posts.filter(post => !usedPosts.has(post.id));
+    const toAdd = Math.min(remainingPosts.length, finalRemainingSlots);
+    remainingPosts.slice(0, toAdd).forEach(post => {
+      usedPosts.add(post.id);
+      filtered.push(post);
+    });
+  }
+  
   return filtered;
 }
 
