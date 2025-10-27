@@ -20,19 +20,36 @@ try {
 }
 
 class AIService {
-  static baseUrl = 'https://api.perplexity.ai';
-  static timeout = 30000; // 30 seconds
+  static baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+  static model = 'tinyllama:1.1b';
+  static timeout = 60000; // 60 seconds for local model
+
+  // Helper method to call Ollama API
+  static async callOllama(prompt, options = {}) {
+    try {
+      const response = await axios.post(`${this.baseUrl}/api/generate`, {
+        model: options.model || this.model,
+        prompt: prompt,
+        stream: false,
+        options: {
+          temperature: options.temperature || 0.3,
+          max_tokens: options.max_tokens || 1000
+        }
+      }, {
+        timeout: this.timeout
+      });
+
+      return response.data.response;
+    } catch (error) {
+      logger.error('Ollama API call failed:', error.message);
+      throw error;
+    }
+  }
 
   // New method: Generate query expansion options
   static async generateQueryExpansion(query) {
     try {
-      const apiKey = process.env.PERPLEXITY_API_KEY;
-      if (!apiKey) {
-        logger.warn('No Perplexity API key - using fallback query expansion');
-        return this.getFallbackQueryExpansion(query);
-      }
-
-      logger.info(`🤖 Generating AI query expansion for: "${query}"`);
+      logger.info(`🤖 Generating AI query expansion for: "${query}" using TinyLlama`);
 
       const prompt = `Generate 6 specific focus areas for social media research on "${query}". 
 
@@ -50,55 +67,11 @@ Return ONLY a JSON array with this exact format:
 
 Make each focus area specific to "${query}". Avoid generic categories.`;
 
-      // Try with the primary model first
-      let response;
-      try {
-        response = await axios.post(`${this.baseUrl}/chat/completions`, {
-          model: 'sonar-pro',
-          messages: [
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
-          max_tokens: 800,
-          temperature: 0.3
-        }, {
-          headers: {
-            'Authorization': `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
-          },
-          timeout: this.timeout
-        });
-      } catch (primaryError) {
-        logger.warn('Primary AI model failed, trying fallback model');
-        
-        // Try with a different model as fallback
-        try {
-          response = await axios.post(`${this.baseUrl}/chat/completions`, {
-            model: 'sonar-medium',
-            messages: [
-              {
-                role: 'user',
-                content: prompt
-              }
-            ],
-            max_tokens: 600,
-            temperature: 0.3
-          }, {
-            headers: {
-              'Authorization': `Bearer ${apiKey}`,
-              'Content-Type': 'application/json'
-            },
-            timeout: this.timeout
-          });
-        } catch (fallbackError) {
-          logger.error('Both AI models failed, using hardcoded fallback');
-          return this.getFallbackQueryExpansion(query);
-        }
-      }
+      const aiResponse = await this.callOllama(prompt, {
+        temperature: 0.3,
+        max_tokens: 800
+      });
 
-      const aiResponse = response.data.choices[0]?.message?.content;
       if (!aiResponse) {
         logger.warn('❌ No AI response content received');
         return this.getFallbackQueryExpansion(query);
@@ -339,12 +312,7 @@ Make each focus area specific to "${query}". Avoid generic categories.`;
 
   static async performCategorySpecificAnalysis(posts, expandedQuery, category) {
     try {
-      const apiKey = process.env.PERPLEXITY_API_KEY;
-      if (!apiKey) {
-        return this.fallbackCategoryAnalysis(posts, category);
-      }
-
-      logger.info(`🔍 Performing ${category} analysis for: "${expandedQuery}"`);
+      logger.info(`🔍 Performing ${category} analysis for: "${expandedQuery}" using TinyLlama`);
 
       // Generate semantic context for better understanding
       const semanticContext = await this.generateSemanticContext(expandedQuery);
@@ -382,25 +350,11 @@ Respond with ONLY a JSON object containing the indices (1-based) of the most rel
 
 Return maximum 15 most relevant posts for ${category}.`;
 
-      const response = await axios.post(`${this.baseUrl}/chat/completions`, {
-        model: 'sonar-pro',
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        max_tokens: 500,
-        temperature: 0.1
-      }, {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: this.timeout
+      const aiResponse = await this.callOllama(prompt, {
+        temperature: 0.1,
+        max_tokens: 500
       });
 
-      const aiResponse = response.data.choices[0]?.message?.content;
       if (!aiResponse) {
         logger.error('No response content from AI');
         throw new Error('No response from AI category analysis');
@@ -490,15 +444,8 @@ Return maximum 15 most relevant posts for ${category}.`;
     }
 
     try {
-      const apiKey = process.env.PERPLEXITY_API_KEY;
-      
-      if (!apiKey) {
-        logger.warn('Perplexity API key not configured, using enhanced sentiment analysis');
-        return this.enhancedSentimentAnalysis(posts, query);
-      }
-
       // Step 1: AI-powered relevance filtering
-      logger.info(`🤖 AI analyzing ${posts.length} posts for relevance to query: "${query}"`);
+      logger.info(`🤖 AI analyzing ${posts.length} posts for relevance to query: "${query}" using TinyLlama`);
       const relevantPosts = await this.filterRelevantPosts(posts, query);
       
       if (relevantPosts.length === 0) {
@@ -539,13 +486,7 @@ Return maximum 15 most relevant posts for ${category}.`;
 
   static async filterRelevantPosts(posts, query) {
     try {
-      const apiKey = process.env.PERPLEXITY_API_KEY;
-      if (!apiKey) {
-        logger.warn('No Perplexity API key, skipping AI relevance filtering');
-        return posts; // Return all posts if no API key
-      }
-
-      logger.info(`🔍 AI filtering ${posts.length} posts for relevance to: "${query}"`);
+      logger.info(`🔍 AI filtering ${posts.length} posts for relevance to: "${query}" using TinyLlama`);
       
       // Process posts in batches to avoid token limits
       const batchSize = 50;
@@ -628,25 +569,10 @@ Respond with ONLY a JSON object containing the indices (1-based) of relevant pos
 
 If no posts are relevant, respond with: {"relevant": []}`;
 
-      const response = await axios.post(`${this.baseUrl}/chat/completions`, {
-        model: 'sonar-pro',
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        max_tokens: 500,
-        temperature: 0.1 // Low temperature for consistent relevance filtering
-      }, {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: this.timeout
+      const aiResponse = await this.callOllama(prompt, {
+        temperature: 0.1,
+        max_tokens: 500
       });
-
-      const aiResponse = response.data.choices[0]?.message?.content;
       if (!aiResponse) {
         throw new Error('No response from AI relevance filter');
       }
@@ -674,7 +600,7 @@ If no posts are relevant, respond with: {"relevant": []}`;
   static async aiSentimentAnalysis(posts, query) {
     try {
       const maxPosts = Math.min(posts.length, 100);
-      logger.info(`🤖 AI analyzing sentiment of ${maxPosts} posts using Perplexity AI...`);
+      logger.info(`🤖 AI analyzing sentiment of ${maxPosts} posts using TinyLlama...`);
       
       // Calculate average engagement for context
       const totalEngagement = posts.reduce((sum, post) => sum + (post.engagement || 0), 0);
@@ -727,25 +653,10 @@ Respond with ONLY a JSON object in this exact format:
 
 Example: {"painPoints": [1, 5, 8], "trendingIdeas": [2, 3, 7], "contentIdeas": [4, 6, 9]}`;
 
-      const response = await axios.post(`${this.baseUrl}/chat/completions`, {
-        model: 'sonar-pro',
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        max_tokens: 1000,
-        temperature: 0.3
-      }, {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: this.timeout
+      const aiResponse = await this.callOllama(prompt, {
+        temperature: 0.3,
+        max_tokens: 1000
       });
-
-      const aiResponse = response.data.choices[0]?.message?.content;
       
       if (!aiResponse) {
         throw new Error('No response from AI service');
@@ -954,12 +865,6 @@ Example: {"painPoints": [1, 5, 8], "trendingIdeas": [2, 3, 7], "contentIdeas": [
 
   static async generateContentIdeas(query, posts) {
     try {
-      const apiKey = process.env.PERPLEXITY_API_KEY;
-      
-      if (!apiKey) {
-        return this.generateSimpleContentIdeas(query, posts);
-      }
-
       const prompt = `Based on these social media posts about "${query}", generate 5 creative content ideas:
 
 Posts context:
@@ -972,20 +877,11 @@ Generate 5 specific, actionable content ideas that would resonate with this audi
 
 Format as a JSON array of objects with "title", "description", and "platform" fields.`;
 
-      const response = await axios.post(`${this.baseUrl}/chat/completions`, {
-        model: 'sonar-pro',
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 800,
-        temperature: 0.7
-      }, {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: this.timeout
+      const aiResponse = await this.callOllama(prompt, {
+        temperature: 0.7,
+        max_tokens: 800
       });
 
-      const aiResponse = response.data.choices[0]?.message?.content;
       return JSON.parse(aiResponse || '[]');
 
     } catch (error) {
@@ -1029,12 +925,6 @@ Format as a JSON array of objects with "title", "description", and "platform" fi
   // Generate semantic context for better AI understanding
   static async generateSemanticContext(query) {
     try {
-      const apiKey = process.env.PERPLEXITY_API_KEY;
-      if (!apiKey) {
-        // Fallback semantic context without AI
-        return this.getFallbackSemanticContext(query);
-      }
-
       const prompt = `Analyze this search query and provide a comprehensive semantic understanding that will help filter relevant social media posts.
 
 SEARCH QUERY: "${query}"
@@ -1051,25 +941,11 @@ IMPORTANT: Consider the FULL context of the query. If it's about theme parks, fo
 
 Keep the response concise but comprehensive. Focus on what people actually discuss about this topic on social media.`;
 
-      const response = await axios.post(`${this.baseUrl}/chat/completions`, {
-        model: 'sonar-pro',
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        max_tokens: 400,
-        temperature: 0.2
-      }, {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: this.timeout
+      const aiResponse = await this.callOllama(prompt, {
+        temperature: 0.2,
+        max_tokens: 400
       });
 
-      const aiResponse = response.data.choices[0]?.message?.content;
       return aiResponse || this.getFallbackSemanticContext(query);
 
     } catch (error) {
