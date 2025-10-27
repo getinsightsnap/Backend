@@ -299,7 +299,7 @@ router.get('/debug', async (req, res) => {
     reddit: { configured: true, status: 'ready' },
     x: { configured: !!process.env.X_BEARER_TOKEN, status: process.env.X_BEARER_TOKEN ? 'ready' : 'not configured' },
     youtube: { configured: !!process.env.YOUTUBE_API_KEY, status: process.env.YOUTUBE_API_KEY ? 'ready' : 'not configured' },
-    perplexity: { configured: !!process.env.PERPLEXITY_API_KEY, status: process.env.PERPLEXITY_API_KEY ? 'ready' : 'not configured' }
+    ollama: { configured: true, status: 'ready', model: 'tinyllama:1.1b', baseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434' }
   };
   
   res.json({
