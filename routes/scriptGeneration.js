@@ -5,18 +5,34 @@ const logger = require('../utils/logger');
 const router = express.Router();
 
 class ScriptGenerationService {
-  static baseUrl = 'https://api.perplexity.ai';
-  static timeout = 30000; // 30 seconds
+  static baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+  static model = 'tinyllama:1.1b';
+  static timeout = 60000; // 60 seconds for local model
+
+  static async callOllama(prompt, options = {}) {
+    try {
+      const response = await axios.post(`${this.baseUrl}/api/generate`, {
+        model: options.model || this.model,
+        prompt: prompt,
+        stream: false,
+        options: {
+          temperature: options.temperature || 0.3,
+          num_predict: options.max_tokens || 1000
+        }
+      }, {
+        timeout: this.timeout
+      });
+
+      return response.data.response;
+    } catch (error) {
+      logger.error('Ollama API call failed:', error.message);
+      throw error;
+    }
+  }
 
   static async generateScript(request) {
     try {
-      const apiKey = process.env.PERPLEXITY_API_KEY;
-      
-      if (!apiKey) {
-        throw new Error('Perplexity API key not configured');
-      }
-
-      logger.info(`🎬 Generating ${request.contentType} script for ${request.category} category`);
+      logger.info(`🎬 Generating ${request.contentType} script for ${request.category} category using TinyLlama`);
 
       // Prepare enhanced context from posts
       const postsContext = this.preparePostsContext(request.posts);
@@ -24,33 +40,13 @@ class ScriptGenerationService {
       // Create intelligent prompt based on category and filters
       const prompt = this.createIntelligentPrompt(request, postsContext);
 
-      const response = await axios.post(`${this.baseUrl}/chat/completions`, {
-        model: 'llama-3.1-sonar-large-128k-chat',
-        messages: [
-          {
-            role: 'system',
-            content: this.getSystemPrompt(request.contentType, request.tone)
-          },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        max_tokens: this.getMaxTokens(request.length, request.contentType),
+      const aiResponse = await this.callOllama(prompt, {
         temperature: this.getTemperature(request.tone),
-        top_p: 0.9
-      }, {
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        timeout: this.timeout
+        max_tokens: this.getMaxTokens(request.length, request.contentType)
       });
-
-      const aiResponse = response.data.choices[0]?.message?.content;
       
       if (!aiResponse) {
-        throw new Error('No response from Perplexity AI');
+        throw new Error('No response from TinyLlama');
       }
 
       // Parse and validate the AI response
@@ -371,7 +367,8 @@ router.get('/health', (req, res) => {
     status: 'OK',
     service: 'script-generation',
     timestamp: new Date().toISOString(),
-    perplexityConfigured: !!process.env.PERPLEXITY_API_KEY
+    aiModel: 'tinyllama:1.1b',
+    ollamaBaseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434'
   });
 });
 
