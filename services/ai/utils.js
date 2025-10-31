@@ -24,6 +24,7 @@ try {
 class AIUtils {
   /**
    * Extract JSON from AI response (handles markdown, extra text, etc.)
+   * Enhanced for better TinyLlama response parsing
    */
   static extractJSON(aiResponse) {
     if (!aiResponse || !aiResponse.trim()) {
@@ -32,46 +33,68 @@ class AIUtils {
 
     let cleanResponse = aiResponse.trim();
     logger.info(`🧹 Cleaning response - Original length: ${cleanResponse.length}`);
+    logger.info(`📝 Raw response preview: ${cleanResponse.substring(0, 500)}...`);
     
     // Remove markdown code blocks
     cleanResponse = cleanResponse.replace(/```json\n?/gi, '').replace(/```\n?/g, '').trim();
     
-    // Remove text before first [ or {
-    const jsonStart = Math.max(
-      cleanResponse.indexOf('['),
-      cleanResponse.indexOf('{')
-    );
+    // Try to find JSON array first (most common for focus areas)
+    let jsonStart = cleanResponse.indexOf('[');
+    let isArray = jsonStart >= 0;
+    
+    // If no array, try object
+    if (jsonStart < 0) {
+      jsonStart = cleanResponse.indexOf('{');
+      isArray = false;
+    }
     
     if (jsonStart > 0) {
       logger.info(`📝 Found text before JSON, removing ${jsonStart} chars`);
       cleanResponse = cleanResponse.substring(jsonStart);
     }
     
-    // Find complete JSON structure
+    // Find complete JSON structure with better bracket matching
     let jsonMatch = null;
     let bracketCount = 0;
-    let startIndex = Math.max(
-      cleanResponse.indexOf('['),
-      cleanResponse.indexOf('{')
-    );
+    let startIndex = 0;
+    const startChar = cleanResponse[0];
     
-    if (startIndex >= 0) {
-      const startChar = cleanResponse[startIndex];
+    if (startChar === '[' || startChar === '{') {
       const endChar = startChar === '[' ? ']' : '}';
       
-      for (let i = startIndex; i < cleanResponse.length; i++) {
+      for (let i = 0; i < cleanResponse.length; i++) {
         if (cleanResponse[i] === startChar) bracketCount++;
         if (cleanResponse[i] === endChar) bracketCount--;
-        if (bracketCount === 0 && i > startIndex) {
-          jsonMatch = cleanResponse.substring(startIndex, i + 1);
-          logger.info(`✅ Found complete JSON structure (length: ${jsonMatch.length})`);
+        
+        // Found complete structure
+        if (bracketCount === 0 && i > 0) {
+          jsonMatch = cleanResponse.substring(0, i + 1);
+          logger.info(`✅ Found complete JSON structure (length: ${jsonMatch.length}, type: ${startChar === '[' ? 'array' : 'object'})`);
           break;
         }
       }
     }
     
+    // If bracket matching failed, try to find the largest valid JSON substring
     if (!jsonMatch) {
-      logger.warn(`⚠️ Could not find complete JSON, trying entire response`);
+      logger.warn(`⚠️ Bracket matching failed, trying to find valid JSON substring`);
+      
+      // Try to find a JSON substring that can be parsed
+      for (let end = cleanResponse.length; end > 0; end--) {
+        const candidate = cleanResponse.substring(0, end);
+        try {
+          JSON.parse(candidate);
+          jsonMatch = candidate;
+          logger.info(`✅ Found valid JSON by trial parsing (length: ${jsonMatch.length})`);
+          break;
+        } catch (e) {
+          // Continue searching
+        }
+      }
+    }
+    
+    if (!jsonMatch) {
+      logger.warn(`⚠️ Could not extract JSON, trying entire response`);
       jsonMatch = cleanResponse;
     }
     
