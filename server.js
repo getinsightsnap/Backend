@@ -8,9 +8,6 @@ require('dotenv').config();
 const logger = require('./utils/logger');
 const corsMiddleware = require('./middleware/cors');
 const searchRoutes = require('./routes/search');
-const redditRoutes = require('./routes/reddit');
-const xRoutes = require('./routes/x');
-const youtubeRoutes = require('./routes/youtube');
 const ratingRoutes = require('./routes/ratings');
 const scriptGenerationRoutes = require('./routes/scriptGeneration');
 const paymentRoutes = require('./routes/payments');
@@ -82,9 +79,7 @@ app.get('/health', (req, res) => {
 
 // API routes
 app.use('/api/search', searchRoutes);
-app.use('/api/reddit', redditRoutes);
-app.use('/api/x', xRoutes);
-app.use('/api/youtube', youtubeRoutes);
+// Removed unused routes: /api/reddit, /api/x, /api/youtube (now using ScrapeCreators API)
 app.use('/api/ratings', ratingRoutes);
 app.use('/api/scripts', scriptGenerationRoutes);
 app.use('/api/payments', paymentRoutes);
@@ -96,12 +91,11 @@ app.use('*', (req, res) => {
     message: `Route ${req.originalUrl} not found`,
     availableRoutes: [
       'GET /health',
-      'POST /api/search',
-      'POST /api/reddit/search',
-      'POST /api/x/search',
-      'POST /api/youtube/search',
-      'GET /api/youtube/trending',
-      'GET /api/youtube/health'
+      'POST /api/search/expand-query',
+      'POST /api/search/focused-search',
+      'POST /api/ratings/submit',
+      'POST /api/scripts/generate',
+      'POST /api/payments/create-checkout'
     ]
   });
 });
