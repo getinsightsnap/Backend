@@ -637,7 +637,7 @@ SEARCH CONTEXT: "${query}"
 SEMANTIC UNDERSTANDING:
 ${semanticContext}
 
-IMPORTANT: Mix posts from ALL platforms (Reddit, X/Twitter, YouTube) in each category. Do NOT separate by platform.
+IMPORTANT: Mix posts from ALL platforms (Reddit, X/Twitter, YouTube, LinkedIn, Threads) in each category. Do NOT separate by platform.
 
 CATEGORIES BY SENTIMENT/INTENT:
 1. PAIN POINTS: Posts expressing problems, frustrations, challenges, complaints, or negative experiences specifically related to "${query}" in its natural context
@@ -648,7 +648,7 @@ STRICT ANALYSIS RULES:
 - ONLY categorize posts that are genuinely relevant to "${query}" in its ACTUAL domain/context
 - REJECT posts about completely unrelated topics (stock trading, horror stories, gaming when searching for cooking, programming when searching for theme parks, etc.)
 - DISTRIBUTE posts across ALL THREE categories (don't put everything in one category)
-- MIX platforms in each category - a category can have Reddit + X + YouTube posts together
+- MIX platforms in each category - a category can have Reddit + X + YouTube + LinkedIn + Threads posts together
 - Prioritize high engagement posts for trending ideas
 - Include posts asking questions about the topic as content ideas
 - Include complaints and frustrations about the topic as pain points
@@ -855,7 +855,8 @@ Example: {"painPoints": [1, 5, 8], "trendingIdeas": [2, 3, 7], "contentIdeas": [
     // Log platform distribution for each category (mixed platforms)
     ['painPoints', 'trendingIdeas', 'contentIdeas'].forEach(categoryName => {
       const platformCounts = this.getPlatformCounts(result[categoryName]);
-      logger.info(`📊 ${categoryName}: ${result[categoryName].length} posts - Reddit: ${platformCounts.reddit}, X: ${platformCounts.x}, YouTube: ${platformCounts.youtube} (MIXED)`);
+      const platformList = Object.entries(platformCounts).map(([p, c]) => `${p}: ${c}`).join(', ');
+      logger.info(`📊 ${categoryName}: ${result[categoryName].length} posts - ${platformList} (MIXED)`);
     });
 
     return result;
