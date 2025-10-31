@@ -21,14 +21,18 @@ try {
 
 class AIService {
   static baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-  static model = 'tinyllama:1.1b';
+  static analysisModel = 'tinyllama:1.1b';  // For analysis tasks
+  static segregationModel = 'gpt2';          // For categorization/segregation tasks
   static timeout = 60000; // 60 seconds for local model
 
   // Helper method to call Ollama API
   static async callOllama(prompt, options = {}) {
     try {
+      // Use segregationModel for categorization tasks, analysisModel for others
+      const model = options.model || (options.useSegregationModel ? this.segregationModel : this.analysisModel);
+      
       const response = await axios.post(`${this.baseUrl}/api/generate`, {
-        model: options.model || this.model,
+        model: model,
         prompt: prompt,
         stream: false,
         options: {
@@ -312,7 +316,7 @@ Make each focus area specific to "${query}". Avoid generic categories.`;
 
   static async performCategorySpecificAnalysis(posts, expandedQuery, category) {
     try {
-      logger.info(`🔍 Performing ${category} analysis for: "${expandedQuery}" using TinyLlama`);
+      logger.info(`🔍 Performing ${category} analysis for: "${expandedQuery}" using GPT-2`);
 
       // Generate semantic context for better understanding
       const semanticContext = await this.generateSemanticContext(expandedQuery);
@@ -350,14 +354,16 @@ Respond with ONLY a JSON object containing the indices (1-based) of the most rel
 
 Return maximum 15 most relevant posts for ${category}.`;
 
+      // Use GPT-2 for category-specific analysis (segregation task)
       const aiResponse = await this.callOllama(prompt, {
         temperature: 0.1,
-        max_tokens: 500
+        max_tokens: 500,
+        useSegregationModel: true
       });
 
       if (!aiResponse) {
-        logger.error('No response content from AI');
-        throw new Error('No response from AI category analysis');
+        logger.error('No response content from GPT-2');
+        throw new Error('No response from GPT-2 category analysis');
       }
 
       logger.info(`📝 AI response received: ${aiResponse.substring(0, 200)}...`);
@@ -375,8 +381,8 @@ Return maximum 15 most relevant posts for ${category}.`;
         
         result = JSON.parse(jsonStr);
       } catch (parseError) {
-        logger.error('Failed to parse AI response:', parseError.message);
-        logger.error('AI response was:', aiResponse);
+        logger.error('Failed to parse GPT-2 response:', parseError.message);
+        logger.error('GPT-2 response was:', aiResponse);
         // Return empty array on parse error
         return [];
       }
@@ -600,7 +606,7 @@ If no posts are relevant, respond with: {"relevant": []}`;
   static async aiSentimentAnalysis(posts, query) {
     try {
       const maxPosts = Math.min(posts.length, 100);
-      logger.info(`🤖 AI analyzing sentiment of ${maxPosts} posts using TinyLlama...`);
+      logger.info(`🤖 AI analyzing sentiment of ${maxPosts} posts using GPT-2 for segregation...`);
       
       // Calculate average engagement for context
       const totalEngagement = posts.reduce((sum, post) => sum + (post.engagement || 0), 0);
@@ -653,9 +659,11 @@ Respond with ONLY a JSON object in this exact format:
 
 Example: {"painPoints": [1, 5, 8], "trendingIdeas": [2, 3, 7], "contentIdeas": [4, 6, 9]}`;
 
+      // Use GPT-2 for sentiment analysis and categorization (segregation task)
       const aiResponse = await this.callOllama(prompt, {
         temperature: 0.3,
-        max_tokens: 1000
+        max_tokens: 1000,
+        useSegregationModel: true
       });
       
       if (!aiResponse) {
@@ -678,7 +686,7 @@ Example: {"painPoints": [1, 5, 8], "trendingIdeas": [2, 3, 7], "contentIdeas": [
         }
       };
 
-      logger.info(`✅ AI sentiment analysis complete: ${result.painPoints.length} pain points, ${result.trendingIdeas.length} trending ideas, ${result.contentIdeas.length} content ideas`);
+      logger.info(`✅ GPT-2 sentiment analysis complete: ${result.painPoints.length} pain points, ${result.trendingIdeas.length} trending ideas, ${result.contentIdeas.length} content ideas`);
       
       // Ensure all categories have results
       return this.ensureAllCategoriesHaveResults(result, posts);
