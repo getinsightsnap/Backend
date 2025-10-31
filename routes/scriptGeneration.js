@@ -6,7 +6,7 @@ const router = express.Router();
 
 class ScriptGenerationService {
   static baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-  static model = 'tinyllama:1.1b';
+  static model = 'gpt2';  // GPT-2 for script generation
   static timeout = 60000; // 60 seconds for local model
 
   static async callOllama(prompt, options = {}) {
@@ -32,7 +32,7 @@ class ScriptGenerationService {
 
   static async generateScript(request) {
     try {
-      logger.info(`🎬 Generating ${request.contentType} script for ${request.category} category using TinyLlama`);
+      logger.info(`🎬 Generating ${request.contentType} script for ${request.category} category using GPT-2`);
 
       // Prepare enhanced context from posts
       const postsContext = this.preparePostsContext(request.posts);
@@ -46,7 +46,7 @@ class ScriptGenerationService {
       });
       
       if (!aiResponse) {
-        throw new Error('No response from TinyLlama');
+        throw new Error('No response from GPT-2');
       }
 
       // Parse and validate the AI response
@@ -367,7 +367,7 @@ router.get('/health', (req, res) => {
     status: 'OK',
     service: 'script-generation',
     timestamp: new Date().toISOString(),
-    aiModel: 'tinyllama:1.1b',
+    aiModel: 'gpt2',
     ollamaBaseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434'
   });
 });
