@@ -473,7 +473,7 @@ router.get('/stats', async (req, res) => {
       popularQueries: [], // Would come from database
       platformStats: {
         reddit: { available: true, lastChecked: new Date().toISOString() },
-        x: { available: !!process.env.X_BEARER_TOKEN, lastChecked: new Date().toISOString() },
+        scrapecreators: { available: !!process.env.SCRAPECREATORS_API_KEY, lastChecked: new Date().toISOString() },
         youtube: { available: false, lastChecked: new Date().toISOString() }
       }
     });
