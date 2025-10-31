@@ -33,10 +33,7 @@ class AIService {
       // Use segregationModel for categorization tasks, analysisModel for others
       const model = options.model || (options.useSegregationModel ? this.segregationModel : this.analysisModel);
       
-      // Log in production for debugging
-      if (process.env.NODE_ENV === 'production' && options.logRequest) {
-        logger.info(`🤖 Calling Ollama at ${this.baseUrl} with model: ${model}`);
-      }
+      logger.info(`🤖 Calling Ollama at ${this.baseUrl} with model: ${model}`);
       
       // Adjust context size based on model
       // TinyLlama has 2048 context limit, GPT-2 has different limits
@@ -52,13 +49,38 @@ class AIService {
           num_ctx: contextSize // Set appropriate context size for model
         }
       }, {
-        timeout: this.timeout
+        timeout: this.timeout,
+        validateStatus: function (status) {
+          return status < 500; // Don't throw for 4xx errors
+        }
       });
 
+      if (response.status >= 400) {
+        logger.error(`❌ Ollama API returned error status ${response.status}:`, response.data);
+        throw new Error(`Ollama API error: ${response.status} - ${response.data?.error || 'Unknown error'}`);
+      }
+
+      if (!response.data || !response.data.response) {
+        logger.error('❌ Ollama API returned invalid response:', response.data);
+        throw new Error('Invalid response from Ollama API');
+      }
+
+      logger.info(`✅ Ollama API call successful for model: ${model}`);
       return response.data.response;
     } catch (error) {
-      logger.error('Ollama API call failed:', error.message);
-      throw error;
+      if (error.code === 'ECONNREFUSED') {
+        logger.error(`❌ Cannot connect to Ollama at ${this.baseUrl}. Is Ollama running?`);
+        throw new Error(`Ollama service unavailable at ${this.baseUrl}. Please check if Ollama is running.`);
+      } else if (error.code === 'ETIMEDOUT' || error.message.includes('timeout')) {
+        logger.error(`❌ Ollama API call timed out after ${this.timeout}ms`);
+        throw new Error(`AI model (${model}) request timed out. The model may be overloaded or not loaded.`);
+      } else if (error.response) {
+        logger.error(`❌ Ollama API error: ${error.response.status} - ${JSON.stringify(error.response.data)}`);
+        throw new Error(`AI model (${model}) error: ${error.response.data?.error || error.message}`);
+      } else {
+        logger.error('Ollama API call failed:', error.message);
+        throw error;
+      }
     }
   }
 
@@ -67,32 +89,26 @@ class AIService {
     try {
       logger.info(`🤖 Generating AI query expansion for: "${query}" using TinyLlama`);
 
-      const prompt = `You are a social media research assistant. Generate exactly 6 specific focus areas for researching "${query}" on social media platforms like Reddit, X (Twitter), YouTube, LinkedIn, and Threads.
+      const prompt = `Generate 6 specific focus areas for "${query}".
 
-Each focus area must be:
-1. Specific to "${query}" - not generic
-2. Relevant to what people actually discuss about this topic
-3. Different from each other
+Rules:
+- Each focus area must be unique and specific to "${query}"
+- Make them relevant to what people discuss on Reddit, Twitter, YouTube, LinkedIn, Threads
+- Return ONLY valid JSON array, no other text
 
-Return ONLY a valid JSON array with exactly 6 objects, using this exact format (no extra text):
+Format (exactly 6 items):
 [
-  {
-    "title": "Specific Focus Area 1",
-    "description": "Brief description of what this reveals",
-    "expandedQuery": "specific search terms for this focus",
-    "category": "problems"
-  },
-  {
-    "title": "Specific Focus Area 2",
-    "description": "Brief description",
-    "expandedQuery": "search terms",
-    "category": "experiences"
-  }
+{"title":"Focus 1","description":"What this reveals","expandedQuery":"search terms 1","category":"problems"},
+{"title":"Focus 2","description":"What this reveals","expandedQuery":"search terms 2","category":"experiences"},
+{"title":"Focus 3","description":"What this reveals","expandedQuery":"search terms 3","category":"questions"},
+{"title":"Focus 4","description":"What this reveals","expandedQuery":"search terms 4","category":"success"},
+{"title":"Focus 5","description":"What this reveals","expandedQuery":"search terms 5","category":"tools"},
+{"title":"Focus 6","description":"What this reveals","expandedQuery":"search terms 6","category":"trends"}
 ]
 
-Categories must be one of: "problems", "experiences", "questions", "success", "tools", "trends", "perspectives"
+Categories: "problems", "experiences", "questions", "success", "tools", "trends", "perspectives"
 
-Generate 6 unique focus areas now for "${query}":`;
+Generate 6 focus areas for "${query}":`;
 
       // Try up to 3 times to get valid AI response
       let lastError = null;
@@ -101,8 +117,9 @@ Generate 6 unique focus areas now for "${query}":`;
           logger.info(`🔄 Attempt ${attempt}/3: Calling Ollama for query expansion`);
           
           const aiResponse = await this.callOllama(prompt, {
-            temperature: 0.5, // Slightly higher for more creativity
-            max_tokens: 800 // Adjusted for TinyLlama (context limit 2048)
+            temperature: 0.7, // Higher for more creativity and variation
+            max_tokens: 1200, // Increased for better JSON generation (TinyLlama can handle this)
+            logRequest: true // Always log for debugging
           });
 
           if (!aiResponse || aiResponse.trim().length === 0) {
@@ -111,10 +128,13 @@ Generate 6 unique focus areas now for "${query}":`;
           }
 
           logger.info(`📝 Attempt ${attempt} - AI Response length: ${aiResponse.length} chars`);
-          logger.info(`📝 Attempt ${attempt} - First 300 chars: ${aiResponse.substring(0, 300)}...`);
+          logger.info(`📝 Attempt ${attempt} - Full AI Response: ${aiResponse}`);
+          logger.info(`📝 Attempt ${attempt} - First 500 chars: ${aiResponse.substring(0, 500)}...`);
 
           // Clean and parse JSON response
           let cleanResponse = aiResponse.trim();
+          
+          logger.info(`🧹 Cleaning response - Original length: ${cleanResponse.length}`);
           
           // Remove any markdown code blocks
           cleanResponse = cleanResponse.replace(/```json\n?/gi, '').replace(/```\n?/g, '').trim();
@@ -122,6 +142,7 @@ Generate 6 unique focus areas now for "${query}":`;
           // Remove any leading text before the first [
           const firstBracket = cleanResponse.indexOf('[');
           if (firstBracket > 0) {
+            logger.info(`📝 Found text before JSON array, removing ${firstBracket} chars`);
             cleanResponse = cleanResponse.substring(firstBracket);
           }
           
@@ -134,17 +155,21 @@ Generate 6 unique focus areas now for "${query}":`;
             for (let i = startIndex; i < cleanResponse.length; i++) {
               if (cleanResponse[i] === '[') bracketCount++;
               if (cleanResponse[i] === ']') bracketCount--;
-              if (bracketCount === 0) {
+              if (bracketCount === 0 && i > startIndex) {
                 jsonMatch = cleanResponse.substring(startIndex, i + 1);
+                logger.info(`✅ Found complete JSON array (length: ${jsonMatch.length})`);
                 break;
               }
             }
           }
           
           if (!jsonMatch) {
+            logger.warn(`⚠️ Could not find complete JSON array, trying entire response`);
             // Try parsing the entire response as JSON
             jsonMatch = cleanResponse;
           }
+          
+          logger.info(`📦 JSON to parse (length: ${jsonMatch.length}): ${jsonMatch.substring(0, 300)}...`);
 
           let subtopics;
           try {
@@ -208,7 +233,8 @@ Generate 6 unique focus areas now for "${query}":`;
             
           } catch (parseError) {
             logger.warn(`❌ Attempt ${attempt}: JSON parsing failed: ${parseError.message}`);
-            logger.warn(`📝 Problematic JSON: ${jsonMatch.substring(0, 200)}...`);
+            logger.warn(`📝 Problematic JSON (full): ${jsonMatch}`);
+            logger.warn(`📝 Original AI Response: ${aiResponse}`);
             lastError = parseError;
             // Continue to next attempt
             continue;
