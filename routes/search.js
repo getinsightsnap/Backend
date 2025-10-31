@@ -1,7 +1,5 @@
 const express = require('express');
-const RedditService = require('../services/redditService');
-const XService = require('../services/xService');
-const YouTubeService = require('../services/youtubeService');
+const ScrapeCreatorsService = require('../services/scrapeCreatorsService');
 const AIService = require('../services/aiService');
 const { validateSearchRequest } = require('../middleware/validation');
 const logger = require('../utils/logger');
@@ -49,7 +47,7 @@ router.post('/focused-search', async (req, res) => {
       originalQuery, 
       expandedQuery, 
       selectedCategory, 
-      platforms = ['reddit', 'x', 'youtube'],
+      platforms = ['reddit', 'x', 'youtube', 'linkedin', 'threads'],
       timeFilter = 'week',
       language = 'en'
     } = req.body;
@@ -73,47 +71,15 @@ router.post('/focused-search', async (req, res) => {
     logger.info(`🎯 Focused search: "${expandedQuery}" in category: ${selectedCategory}`);
 
     const startTime = Date.now();
-    const allPosts = [];
 
-    // Collect posts from all platforms
-    const platformPromises = [];
-    
-    if (platforms.includes('reddit')) {
-      platformPromises.push(
-        RedditService.searchPosts(expandedQuery, language, timeFilter)
-          .then(posts => posts.map(post => ({ ...post, platform: 'reddit' })))
-          .catch(error => {
-            logger.error('Reddit search error:', error);
-            return [];
-          })
-      );
-    }
-
-    if (platforms.includes('x')) {
-      platformPromises.push(
-        XService.searchPosts(expandedQuery, language)
-          .then(posts => posts.map(post => ({ ...post, platform: 'x' })))
-          .catch(error => {
-            logger.error('X search error:', error);
-            return [];
-          })
-      );
-    }
-
-    if (platforms.includes('youtube')) {
-      platformPromises.push(
-        YouTubeService.searchPosts(expandedQuery, language)
-          .then(posts => posts.map(post => ({ ...post, platform: 'youtube' })))
-          .catch(error => {
-            logger.error('YouTube search error:', error);
-            return [];
-          })
-      );
-    }
-
-    // Wait for all platform searches to complete
-    const platformResults = await Promise.all(platformPromises);
-    platformResults.forEach(posts => allPosts.push(...posts));
+    // Collect posts from all platforms using ScrapeCreators API
+    const allPosts = await ScrapeCreatorsService.searchPosts(
+      expandedQuery,
+      platforms,
+      language,
+      timeFilter,
+      50
+    );
 
     logger.info(`📊 Collected ${allPosts.length} posts from ${platforms.join(', ')}`);
 
@@ -296,9 +262,11 @@ function generateNoPostsMessage(query, timeFilter, errors) {
 // Debug endpoint to check service health
 router.get('/debug', async (req, res) => {
   const services = {
-    reddit: { configured: true, status: 'ready' },
-    x: { configured: !!process.env.X_BEARER_TOKEN, status: process.env.X_BEARER_TOKEN ? 'ready' : 'not configured' },
-    youtube: { configured: !!process.env.YOUTUBE_API_KEY, status: process.env.YOUTUBE_API_KEY ? 'ready' : 'not configured' },
+    scrapecreators: { 
+      configured: !!process.env.SCRAPECREATORS_API_KEY, 
+      status: process.env.SCRAPECREATORS_API_KEY ? 'ready' : 'not configured',
+      platforms: ['reddit', 'x', 'youtube', 'linkedin', 'threads']
+    },
     ollama: { 
       configured: true, 
       status: 'ready', 
@@ -315,32 +283,34 @@ router.get('/debug', async (req, res) => {
   });
 });
 
-// Test endpoint to check YouTube specifically
-router.get('/test-youtube', async (req, res) => {
+// Test endpoint to check ScrapeCreators API
+router.get('/test-scrapecreators', async (req, res) => {
   try {
     const query = req.query.q || 'AI marketing';
     const timeFilter = req.query.timeFilter || 'week';
+    const platforms = ['reddit', 'x', 'youtube', 'linkedin', 'threads'];
     
-    logger.info(`🧪 Testing YouTube search for: "${query}"`);
+    logger.info(`🧪 Testing ScrapeCreators API for: "${query}"`);
     
-    const posts = await YouTubeService.searchPosts(query, 'en', timeFilter, 10);
+    const posts = await ScrapeCreatorsService.searchPosts(query, platforms, 'en', timeFilter, 10);
     
     res.json({
       success: true,
       query,
       timeFilter,
+      platforms,
       postsCount: posts.length,
       posts: posts.slice(0, 3), // Return first 3 for debugging
-      apiKeyConfigured: !!process.env.YOUTUBE_API_KEY,
+      apiKeyConfigured: !!process.env.SCRAPECREATORS_API_KEY,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    logger.error('YouTube test error:', error);
+    logger.error('ScrapeCreators test error:', error);
     res.status(500).json({
       success: false,
       error: error.message,
       stack: error.stack,
-      apiKeyConfigured: !!process.env.YOUTUBE_API_KEY
+      apiKeyConfigured: !!process.env.SCRAPECREATORS_API_KEY
     });
   }
 });
@@ -353,95 +323,33 @@ router.post('/', validateSearchRequest, async (req, res) => {
     logger.info(`🔍 Search request: "${query}" on platforms: [${platforms.join(', ')}] (language: ${language}, timeFilter: ${timeFilter})`);
     
     const startTime = Date.now();
-    const allPosts = [];
-
-    // Parallel API calls with timeout
-    const promises = [];
     
-    if (platforms.includes('reddit')) {
-      promises.push(
-        RedditService.searchPosts(query, language, timeFilter)
-          .then(posts => ({ platform: 'reddit', posts, success: true }))
-          .catch(error => ({ platform: 'reddit', error: error.message, success: false }))
-      );
-    }
-    
-    if (platforms.includes('x')) {
-      promises.push(
-        XService.searchPosts(query, language, timeFilter, 50)
-          .then(posts => ({ platform: 'x', posts, success: true }))
-          .catch(error => ({ platform: 'x', error: error.message, success: false }))
-      );
-    }
-
-    // YouTube search
-    if (platforms.includes('youtube')) {
-      logger.info('📺 YouTube search initiated...');
-      promises.push(
-        YouTubeService.searchPosts(query, language, timeFilter, 50)
-          .then(posts => {
-            logger.info(`✅ YouTube search completed: ${posts.length} posts`);
-            return { platform: 'youtube', posts, success: true };
-          })
-          .catch(error => {
-            logger.error(`❌ YouTube search failed: ${error.message}`);
-            return { platform: 'youtube', error: error.message, success: false };
-          })
-      );
-    }
-
-    // Wait for all API calls with overall timeout (increased for high traffic)
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Search timeout')), 45000) // Increased to 45 seconds
+    // Use ScrapeCreators API for all platforms
+    logger.info('🔍 Using ScrapeCreators API for post collection...');
+    const allPosts = await ScrapeCreatorsService.searchPosts(
+      query,
+      platforms,
+      language,
+      timeFilter,
+      50
     );
 
-    let apiResults;
-    try {
-      apiResults = await Promise.race([
-        Promise.allSettled(promises),
-        timeoutPromise
-      ]);
-    } catch (timeoutError) {
-      // If timeout occurs, still try to get partial results
-      logger.warn('⚠️ Search timeout occurred, attempting to get partial results');
-      apiResults = await Promise.allSettled(promises);
-    }
-
-    // Process results with better error handling
+    // Process results
     const errors = [];
-    const successfulPlatforms = [];
+    const successfulPlatforms = platforms.filter(p => allPosts.some(post => post.platform === p));
     
-    logger.info(`📦 Processing ${apiResults.length} API results...`);
+    logger.info(`📦 Collected ${allPosts.length} posts from ${successfulPlatforms.length} platforms`);
     
-    apiResults.forEach((result, index) => {
-      logger.debug(`Result ${index + 1}:`, { 
-        status: result.status, 
-        platform: result.value?.platform,
-        postsCount: result.value?.posts?.length,
-        success: result.value?.success
-      });
-      
-      if (result.status === 'fulfilled' && result.value.success) {
-        allPosts.push(...result.value.posts);
-        successfulPlatforms.push(result.value.platform);
-        logger.info(`✅ ${result.value.platform}: ${result.value.posts.length} posts`);
-      } else {
-        const error = result.status === 'fulfilled' ? result.value.error : result.reason?.message || 'Unknown error';
-        const platform = result.value?.platform || 'unknown';
-        errors.push(`${platform}: ${error}`);
-        logger.warn(`❌ ${platform} failed: ${error}`);
-      }
+    // Log platform breakdown
+    const platformCounts = {};
+    allPosts.forEach(post => {
+      platformCounts[post.platform] = (platformCounts[post.platform] || 0) + 1;
     });
-    
-    logger.info(`📊 Total posts collected: ${allPosts.length} from platforms: [${successfulPlatforms.join(', ')}]`);
+    logger.info(`📊 Platform breakdown:`, platformCounts);
 
-    // Log success rate for monitoring
-    const successRate = (successfulPlatforms.length / promises.length) * 100;
-    logger.info(`📊 API Success Rate: ${successRate.toFixed(0)}% (${successfulPlatforms.length}/${promises.length} platforms)`);
-
-    // If all platforms failed, return helpful error
-    if (allPosts.length === 0 && errors.length > 0) {
-      logger.error('🚨 All platforms failed to return results');
+    // If no posts found, return helpful error
+    if (allPosts.length === 0) {
+      logger.warn('⚠️ No posts found from ScrapeCreators API');
       return res.status(503).json({
         success: false,
         error: 'Service temporarily unavailable',
@@ -580,7 +488,7 @@ router.get('/stats', async (req, res) => {
 
 // Helper function to apply per-platform limits to posts
 function applyPerPlatformLimits(posts, limitPerPlatform) {
-  const platforms = ['reddit', 'x', 'youtube'];
+  const platforms = ['reddit', 'x', 'youtube', 'linkedin', 'threads'];
   const filtered = [];
   const usedPosts = new Set();
 
@@ -609,7 +517,7 @@ function applyPerPlatformLimits(posts, limitPerPlatform) {
 function applyFreeUserLimits(posts) {
   if (!posts || posts.length === 0) return [];
   
-  const platforms = ['reddit', 'x', 'youtube'];
+  const platforms = ['reddit', 'x', 'youtube', 'linkedin', 'threads'];
   const filtered = [];
   const usedPosts = new Set();
   
