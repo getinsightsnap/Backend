@@ -8,10 +8,10 @@ const searchSchema = Joi.object({
     'string.max': 'Search query must be less than 500 characters'
   }),
   platforms: Joi.array().items(
-    Joi.string().valid('reddit', 'x', 'youtube')
+    Joi.string().valid('reddit', 'x', 'youtube', 'linkedin', 'threads')
   ).min(1).required().messages({
     'array.min': 'At least one platform must be selected',
-    'any.only': 'Platform must be one of: reddit, x, youtube'
+    'any.only': 'Platform must be one of: reddit, x, youtube, linkedin, threads'
   }),
   language: Joi.string().length(2).default('en').messages({
     'string.length': 'Language must be a 2-character code (e.g., en, es, fr)'
