@@ -20,6 +20,8 @@ try {
 }
 
 class AIService {
+  // Use environment variable for production (Railway Ollama service URL)
+  // Falls back to localhost for local development only
   static baseUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
   static analysisModel = 'tinyllama:1.1b';  // For analysis tasks
   static segregationModel = 'gpt2';          // For categorization/segregation tasks
@@ -30,6 +32,11 @@ class AIService {
     try {
       // Use segregationModel for categorization tasks, analysisModel for others
       const model = options.model || (options.useSegregationModel ? this.segregationModel : this.analysisModel);
+      
+      // Log in production for debugging
+      if (process.env.NODE_ENV === 'production' && options.logRequest) {
+        logger.info(`🤖 Calling Ollama at ${this.baseUrl} with model: ${model}`);
+      }
       
       const response = await axios.post(`${this.baseUrl}/api/generate`, {
         model: model,
