@@ -38,13 +38,18 @@ class AIService {
         logger.info(`🤖 Calling Ollama at ${this.baseUrl} with model: ${model}`);
       }
       
+      // Adjust context size based on model
+      // TinyLlama has 2048 context limit, GPT-2 has different limits
+      const contextSize = model.includes('tinyllama') ? 2048 : 4096;
+      
       const response = await axios.post(`${this.baseUrl}/api/generate`, {
         model: model,
         prompt: prompt,
         stream: false,
         options: {
           temperature: options.temperature || 0.3,
-          max_tokens: options.max_tokens || 1000
+          max_tokens: options.max_tokens || (model.includes('tinyllama') ? 800 : 1000),
+          num_ctx: contextSize // Set appropriate context size for model
         }
       }, {
         timeout: this.timeout
@@ -97,7 +102,7 @@ Generate 6 unique focus areas now for "${query}":`;
           
           const aiResponse = await this.callOllama(prompt, {
             temperature: 0.5, // Slightly higher for more creativity
-            max_tokens: 1200 // More tokens for better JSON
+            max_tokens: 800 // Adjusted for TinyLlama (context limit 2048)
           });
 
           if (!aiResponse || aiResponse.trim().length === 0) {
