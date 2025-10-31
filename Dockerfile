@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y \
 # Install Ollama
 RUN curl -fsSL https://ollama.ai/install.sh | sh
 
+# Set Ollama context length for TinyLlama compatibility (default 2048, max for TinyLlama)
+ENV OLLAMA_CONTEXT_LENGTH=2048
+
 # Set working directory
 WORKDIR /app
 
