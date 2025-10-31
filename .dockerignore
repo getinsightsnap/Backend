@@ -1,0 +1,16 @@
+node_modules
+npm-debug.log
+.env
+.env.local
+logs
+*.log
+.DS_Store
+.git
+.gitignore
+README.md
+COPY_TO_BACKEND_REPO.md
+OLLAMA_SETUP.md
+OLLAMA_RAILWAY_SETUP.md
+OLLAMA_DEPLOYMENT_OPTIONS.md
+ENVIRONMENT_VARIABLES_GUIDE.md
+
