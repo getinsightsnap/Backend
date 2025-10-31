@@ -16,20 +16,17 @@ class QueryExpansionService {
     try {
       logger.info(`🤖 Generating AI query expansion for: "${query}" using TinyLlama`);
 
-      // Simplified, direct prompt optimized for TinyLlama
-      const prompt = `Generate 6 focus areas for: "${query}"
+      // Ultra-simplified prompt optimized for TinyLlama
+      // TinyLlama works better with very direct, minimal instructions
+      const prompt = `Query: "${query}"
 
-Requirements:
-- Each focus must be unique and specific to "${query}"
-- Relevant to social media discussions
-- Return ONLY valid JSON array
+Generate 6 focus areas as JSON array only:
 
-JSON format:
-[{"title":"Area 1","description":"Description 1","expandedQuery":"terms 1","category":"problems"},{"title":"Area 2","description":"Description 2","expandedQuery":"terms 2","category":"experiences"},{"title":"Area 3","description":"Description 3","expandedQuery":"terms 3","category":"questions"},{"title":"Area 4","description":"Description 4","expandedQuery":"terms 4","category":"success"},{"title":"Area 5","description":"Description 5","expandedQuery":"terms 5","category":"tools"},{"title":"Area 6","description":"Description 6","expandedQuery":"terms 6","category":"trends"}]
+[{"title":"Focus 1 title","description":"Description 1","expandedQuery":"search terms 1","category":"problems"},{"title":"Focus 2 title","description":"Description 2","expandedQuery":"search terms 2","category":"experiences"},{"title":"Focus 3 title","description":"Description 3","expandedQuery":"search terms 3","category":"questions"},{"title":"Focus 4 title","description":"Description 4","expandedQuery":"search terms 4","category":"success"},{"title":"Focus 5 title","description":"Description 5","expandedQuery":"search terms 5","category":"tools"},{"title":"Focus 6 title","description":"Description 6","expandedQuery":"search terms 6","category":"trends"}]
 
-Categories: problems, experiences, questions, success, tools, trends, perspectives
+Categories: problems experiences questions success tools trends
 
-Generate 6 areas for "${query}":`;
+Generate JSON for "${query}":`;
 
       // Try up to 3 times to get valid AI response
       let lastError = null;
@@ -38,8 +35,8 @@ Generate 6 areas for "${query}":`;
           logger.info(`🔄 Attempt ${attempt}/3: Calling Ollama for query expansion`);
           
           const aiResponse = await OllamaClient.call(prompt, {
-            temperature: 0.8, // Higher temperature for more variation
-            max_tokens: 1500, // Increased for complete JSON generation
+            temperature: 0.9, // Very high temperature for maximum creativity
+            max_tokens: 2000, // More tokens to ensure complete JSON generation
           });
 
           if (!aiResponse || aiResponse.trim().length === 0) {
