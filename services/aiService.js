@@ -62,88 +62,174 @@ class AIService {
     try {
       logger.info(`🤖 Generating AI query expansion for: "${query}" using TinyLlama`);
 
-      const prompt = `Generate 6 specific focus areas for social media research on "${query}". 
+      const prompt = `You are a social media research assistant. Generate exactly 6 specific focus areas for researching "${query}" on social media platforms like Reddit, X (Twitter), YouTube, LinkedIn, and Threads.
 
-Each focus area should be relevant to what people actually discuss about "${query}" on social platforms.
+Each focus area must be:
+1. Specific to "${query}" - not generic
+2. Relevant to what people actually discuss about this topic
+3. Different from each other
 
-Return ONLY a JSON array with this exact format:
+Return ONLY a valid JSON array with exactly 6 objects, using this exact format (no extra text):
 [
   {
-    "title": "Focus Area Name",
-    "description": "What this reveals about the topic",
-    "expandedQuery": "search terms for this focus area",
-    "category": "experiences|problems|questions|success|tools|trends|perspectives"
+    "title": "Specific Focus Area 1",
+    "description": "Brief description of what this reveals",
+    "expandedQuery": "specific search terms for this focus",
+    "category": "problems"
+  },
+  {
+    "title": "Specific Focus Area 2",
+    "description": "Brief description",
+    "expandedQuery": "search terms",
+    "category": "experiences"
   }
 ]
 
-Make each focus area specific to "${query}". Avoid generic categories.`;
+Categories must be one of: "problems", "experiences", "questions", "success", "tools", "trends", "perspectives"
 
-      const aiResponse = await this.callOllama(prompt, {
-        temperature: 0.3,
-        max_tokens: 800
-      });
+Generate 6 unique focus areas now for "${query}":`;
 
-      if (!aiResponse) {
-        logger.warn('❌ No AI response content received');
-        return this.getFallbackQueryExpansion(query);
-      }
+      // Try up to 3 times to get valid AI response
+      let lastError = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          logger.info(`🔄 Attempt ${attempt}/3: Calling Ollama for query expansion`);
+          
+          const aiResponse = await this.callOllama(prompt, {
+            temperature: 0.5, // Slightly higher for more creativity
+            max_tokens: 1200 // More tokens for better JSON
+          });
 
-      logger.info(`📝 AI Response: ${aiResponse.substring(0, 200)}...`);
+          if (!aiResponse || aiResponse.trim().length === 0) {
+            logger.warn(`❌ Attempt ${attempt}: No AI response content received`);
+            continue;
+          }
 
-      // Clean and parse JSON response
-      let cleanResponse = aiResponse.trim();
-      
-      // Remove any markdown code blocks
-      cleanResponse = cleanResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-      
-      // Try to find JSON array
-      let jsonMatch = cleanResponse.match(/\[[\s\S]*\]/);
-      if (!jsonMatch) {
-        // Try parsing the entire response as JSON
-        jsonMatch = [cleanResponse];
-      }
+          logger.info(`📝 Attempt ${attempt} - AI Response length: ${aiResponse.length} chars`);
+          logger.info(`📝 Attempt ${attempt} - First 300 chars: ${aiResponse.substring(0, 300)}...`);
 
-      let subtopics;
-      try {
-        subtopics = JSON.parse(jsonMatch[0]);
-        
-        // Validate that it's an array with proper structure
-        if (!Array.isArray(subtopics) || subtopics.length === 0) {
-          throw new Error('Invalid array format');
+          // Clean and parse JSON response
+          let cleanResponse = aiResponse.trim();
+          
+          // Remove any markdown code blocks
+          cleanResponse = cleanResponse.replace(/```json\n?/gi, '').replace(/```\n?/g, '').trim();
+          
+          // Remove any leading text before the first [
+          const firstBracket = cleanResponse.indexOf('[');
+          if (firstBracket > 0) {
+            cleanResponse = cleanResponse.substring(firstBracket);
+          }
+          
+          // Find the complete JSON array (handle nested objects)
+          let jsonMatch = null;
+          let bracketCount = 0;
+          let startIndex = cleanResponse.indexOf('[');
+          
+          if (startIndex >= 0) {
+            for (let i = startIndex; i < cleanResponse.length; i++) {
+              if (cleanResponse[i] === '[') bracketCount++;
+              if (cleanResponse[i] === ']') bracketCount--;
+              if (bracketCount === 0) {
+                jsonMatch = cleanResponse.substring(startIndex, i + 1);
+                break;
+              }
+            }
+          }
+          
+          if (!jsonMatch) {
+            // Try parsing the entire response as JSON
+            jsonMatch = cleanResponse;
+          }
+
+          let subtopics;
+          try {
+            subtopics = JSON.parse(jsonMatch);
+            
+            // Validate that it's an array with proper structure
+            if (!Array.isArray(subtopics)) {
+              throw new Error('Response is not an array');
+            }
+            
+            if (subtopics.length === 0) {
+              throw new Error('Array is empty');
+            }
+            
+            // Validate each subtopic has required fields
+            const validSubtopics = subtopics
+              .filter(subtopic => 
+                subtopic && 
+                typeof subtopic === 'object' &&
+                subtopic.title && 
+                typeof subtopic.title === 'string' &&
+                subtopic.description && 
+                typeof subtopic.description === 'string' &&
+                subtopic.expandedQuery && 
+                typeof subtopic.expandedQuery === 'string'
+              )
+              .map(subtopic => ({
+                title: subtopic.title.trim(),
+                description: subtopic.description.trim(),
+                expandedQuery: subtopic.expandedQuery.trim(),
+                category: subtopic.category || 'experiences'
+              }))
+              .slice(0, 6); // Take first 6 valid ones
+            
+            if (validSubtopics.length === 0) {
+              throw new Error('No valid subtopics found after validation');
+            }
+            
+            // Ensure we have at least 6 subtopics (duplicate/expand if needed)
+            while (validSubtopics.length < 6 && validSubtopics.length > 0) {
+              const existing = validSubtopics[validSubtopics.length - 1];
+              validSubtopics.push({
+                ...existing,
+                title: `${existing.title} (Alternate)`,
+                expandedQuery: `${existing.expandedQuery} alternative`
+              });
+            }
+            
+            logger.info(`✅ Successfully parsed ${validSubtopics.length} AI-generated focus areas on attempt ${attempt}`);
+            
+            // Add custom option
+            validSubtopics.push({
+              title: "Custom Topic",
+              description: "Specify your own specific area of interest",
+              expandedQuery: query,
+              category: "custom",
+              isCustom: true
+            });
+
+            return validSubtopics.slice(0, 7); // Return 6 + custom
+            
+          } catch (parseError) {
+            logger.warn(`❌ Attempt ${attempt}: JSON parsing failed: ${parseError.message}`);
+            logger.warn(`📝 Problematic JSON: ${jsonMatch.substring(0, 200)}...`);
+            lastError = parseError;
+            // Continue to next attempt
+            continue;
+          }
+          
+        } catch (attemptError) {
+          logger.warn(`❌ Attempt ${attempt} failed: ${attemptError.message}`);
+          lastError = attemptError;
+          // Continue to next attempt or fallback
         }
-        
-        // Validate each subtopic has required fields
-        const validSubtopics = subtopics.filter(subtopic => 
-          subtopic.title && subtopic.description && subtopic.expandedQuery
-        );
-        
-        if (validSubtopics.length === 0) {
-          throw new Error('No valid subtopics found');
-        }
-        
-        logger.info(`✅ Successfully parsed ${validSubtopics.length} AI-generated focus areas`);
-        subtopics = validSubtopics;
-        
-      } catch (parseError) {
-        logger.warn(`❌ AI response parsing failed, using fallback: ${parseError.message}`);
-        return this.getFallbackQueryExpansion(query);
       }
       
-      // Add custom option
-      subtopics.push({
-        title: "Custom Topic",
-        description: "Specify your own specific area of interest",
-        expandedQuery: query,
-        category: "custom",
-        isCustom: true
-      });
-
-      return subtopics;
+      // If all attempts failed, throw error instead of using fallback
+      logger.error(`❌ All 3 attempts failed for query "${query}". Last error: ${lastError?.message}`);
+      throw new Error(`AI query expansion failed after 3 attempts: ${lastError?.message || 'Unknown error'}`);
 
     } catch (error) {
-      logger.error(`❌ AI query expansion failed for "${query}":`, error.message);
-      logger.info('🔄 Falling back to hardcoded patterns');
-      return this.getFallbackQueryExpansion(query);
+      logger.error(`❌ AI query expansion completely failed for "${query}":`, error.message);
+      // Only use fallback as absolute last resort, but log it clearly
+      logger.warn('⚠️ USING FALLBACK DATA - AI generation failed. Check Ollama connection.');
+      const fallback = this.getFallbackQueryExpansion(query);
+      // Add a flag to indicate these are fallback results
+      fallback.forEach(item => {
+        item.isFallback = true;
+      });
+      return fallback;
     }
   }
 
